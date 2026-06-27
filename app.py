@@ -1712,8 +1712,11 @@ def ai_draft_update():
             return jsonify({"status": "success", "draft": fallback})
             
     return jsonify({"status": "error", "message": "AI offline."})
+
+# Force Gunicorn to run the DB setup and AI monitor on cloud startup!
+init_db()
+monitor_thread = threading.Thread(target=monitoring_agent_loop, daemon=True)
+monitor_thread.start()
+
 if __name__ == '__main__':
-    init_db()
-    monitor_thread = threading.Thread(target=monitoring_agent_loop, daemon=True)
-    monitor_thread.start()
     app.run(debug=True, port=5005, use_reloader=False)
