@@ -1311,7 +1311,7 @@ const technicianModules = [
         }
         else if (moduleObj.id === 'user-directory') {
             try {
-                const res = await fetch('http://127.0.0.1:/api/users');
+                const res = await fetch('/api/users');
                 const data = await res.json();
                 if (data.status === 'success') { globalUsersData = data.data; renderUsers(); }
             } catch (e) { if(targetArea) targetArea.innerHTML = "<p style='color:#fca5a5;'>Error loading users.</p>"; }
