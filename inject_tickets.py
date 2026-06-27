@@ -185,7 +185,7 @@ def inject_historical_tickets():
             
         ticket_id = 'REQ-' + str(random.randint(1000, 9999))
         
-        c.execute('''INSERT INTO tickets 
+        c.execute('''INSERT OR REPLACE INTO tickets
             (ticket_id, user_name, role, department, building, location, issue, priority, ai_analysis, assigned_technician, status) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unassigned', 'Pending')''', 
             (ticket_id, random_user, 'Campus User', dept, bldg, loc, issue, priority, 'User Submitted Request.'))

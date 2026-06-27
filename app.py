@@ -20,14 +20,20 @@ from flask_mail import Mail, Message
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 app = Flask(__name__)
+
+
+# Serve the main HTML page
+@app.route('/')
+def home():
+    return send_from_directory('.', 'index.html')
 CORS(app)
 client = genai.Client(api_key=API_KEY) if API_KEY else None
 
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = os.getenv("MAIL_USERNAME", "bhandare.sarthak.25@gmail.com")
-app.config['MAIL_PASSWORD'] = os.getenv("MAIL_PASSWORD", "ajmpulyzlxxexshd")
+app.config['MAIL_USERNAME'] = os.getenv("MAIL_USERNAME")
+app.config['MAIL_PASSWORD'] = os.getenv("MAIL_PASSWORD")
 mail = Mail(app)
 
 otp_store = {}
@@ -133,6 +139,45 @@ def init_db():
         # 3. RUN UPDATES
         c.execute("UPDATE tickets SET department = 'IT & Network Services' WHERE department = 'Technology Services'")
         c.execute("UPDATE tickets SET department = 'Equipment Support' WHERE department = 'Laboratory Equipment Support'")
+        c.execute("UPDATE technicians SET is_on_shift = 0")
+        # ↓↓↓ BATCH 3: HR & TIME MANAGEMENT TABLES ↓↓↓
+        c.execute('''CREATE TABLE IF NOT EXISTS shift_trades (id INTEGER PRIMARY KEY AUTOINCREMENT, requester TEXT, department TEXT, target_date TEXT, status TEXT DEFAULT 'Pending')''')
+        c.execute('''CREATE TABLE IF NOT EXISTS leave_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, tech_name TEXT, start_date TEXT, end_date TEXT, reason TEXT, status TEXT DEFAULT 'Pending')''')
+        try: c.execute("ALTER TABLE technicians ADD COLUMN on_break INTEGER DEFAULT 0")
+        except: pass
+        try: c.execute("ALTER TABLE technicians ADD COLUMN overtime_opt_in INTEGER DEFAULT 0")
+        except: pass
+        # ↑↑↑ END HR TABLES ↑↑↑
+        # ↓↓↓ BATCH 4: GAMIFICATION & FEEDBACK TABLES ↓↓↓
+        try: c.execute("ALTER TABLE tickets ADD COLUMN user_rating INTEGER DEFAULT 0")
+        except: pass
+        try: c.execute("ALTER TABLE tickets ADD COLUMN user_feedback TEXT")
+        except: pass
+        try: c.execute("ALTER TABLE technicians ADD COLUMN badges_unlocked TEXT DEFAULT 'Welcome Aboard'")
+        except: pass
+        # ↑↑↑ END BATCH 4 ↑↑↑
+        # ↓↓↓ BATCH 5: SAFETY & LOCATION TRACKING ↓↓↓
+        try: c.execute("ALTER TABLE technicians ADD COLUMN current_building TEXT DEFAULT 'Main Building'")
+        except: pass
+        # ↓↓↓ PERMANENT INVINCIBLE ACCOUNTS ↓↓↓
+        try:
+            # 1. Permanent Admin
+            c.execute('''INSERT OR IGNORE INTO users (name, email, password, role) 
+                         VALUES ('Master Admin', 'admin@campus.edu', 'Admin123!', 'Portal Admin')''')
+            
+            # 2. Permanent Campus Staff (User)
+            c.execute('''INSERT OR IGNORE INTO users (name, email, password, role) 
+                         VALUES ('Campus User', 'user@campus.edu', 'User123!', 'Campus Staff')''')
+            
+            # 3. Permanent Technician (Added to BOTH users and technicians tables)
+            c.execute('''INSERT OR IGNORE INTO users (name, email, password, role) 
+                         VALUES ('Aarav Sharma', 'tech@campus.edu', 'Tech123!', 'Campus Technician')''')
+            
+            c.execute('''INSERT OR IGNORE INTO technicians (name, department, is_on_shift, on_break, current_active_hours, max_shift_hours) 
+                         VALUES ('Aarav Sharma', 'All', 1, 0, 0, 8)''')
+        except Exception as e:
+            pass # Fails silently if they already exist
+        # ↑↑↑ END PERMANENT ACCOUNTS ↑↑↑
         
         conn.commit()
     except Exception as e:
@@ -168,16 +213,20 @@ def add_notification(target_user, target_role, message, is_urgent=0, db_conn=Non
 # ==========================================
 # 3. AGENTIC TOOLS & QUEUE MANAGEMENT
 # ==========================================
-def tool_get_available_technician(department, estimated_task_hours=2, db_conn=None):
+def tool_get_available_technician(department, ticket_building=None, db_conn=None):
     conn = db_conn or get_db_connection()
     try:
-        available_techs = conn.execute('''
+        # THE FIX: This query STRICTLY limits to the correct department.
+        # Then, it sorts by 'is_close' (True if they are in the same building), and then by their workload.
+        query = '''
             SELECT t.name, 
+                   (t.current_building = ?) as is_close,
                    (SELECT COUNT(*) FROM tickets WHERE assigned_technician = t.name AND status IN ('Assigned', 'In Progress', 'Pending')) as total_tasks
             FROM technicians t
-            WHERE (t.department = ? OR t.department LIKE ?) AND t.is_on_shift = 1
-            ORDER BY total_tasks ASC
-        ''', (department, f'%{department}%')).fetchall()
+            WHERE (t.department = ? OR t.department LIKE ?) AND t.is_on_shift = 1 AND t.on_break = 0
+            ORDER BY is_close DESC, total_tasks ASC
+        '''
+        available_techs = conn.execute(query, (ticket_building, department, f'%{department}%')).fetchall()
         
         if available_techs: 
             return {"status": "success", "technician_name": available_techs[0]['name']}
@@ -253,8 +302,7 @@ def register():
         
         if data['role'] == 'Campus Technician':
             dept = data.get('department', 'Pending Assignment')
-            conn.execute('INSERT INTO technicians (name, department, current_active_hours, max_shift_hours, is_on_shift) VALUES (?, ?, ?, ?, ?)', (data['name'], dept, 0, 8, 1))       
-        
+            conn.execute('INSERT INTO technicians (name, department, current_active_hours, max_shift_hours, is_on_shift) VALUES (?, ?, ?, ?, ?)', (data['name'], dept, 0, 8, 0))        
         add_notification(data['name'], None, f"Welcome to InfraHub! Your {data['role']} account is set up and ready.", db_conn=conn)
         conn.commit()
         return jsonify({"status": "success", "message": "User registered successfully"})
@@ -438,8 +486,7 @@ def create_ticket():
         add_notification(data['user_name'], None, f"Request {data['ticket_id']} successfully sent. AI is analyzing your issue.", db_conn=conn)
         
         # Route to Tech
-        tech = tool_get_available_technician(ai_decision['department'], db_conn=conn)
-        
+        tech = tool_get_available_technician(ai_decision['department'], data['building'], db_conn=conn)
         if tech['status'] == 'success':
             tool_assign_ticket(data['ticket_id'], tech['technician_name'], db_conn=conn)
             add_notification(tech['technician_name'], None, f"AI DISPATCH: {data['ticket_id']} routed to your tracking portal.", is_urgent=1 if ai_decision['priority'] == 'Urgent' else 0, db_conn=conn)
@@ -489,22 +536,34 @@ def delete_ticket(ticket_id):
         conn.close()
 
 # ↓↓↓ FIX: ACCEPT BUTTON NOW OFFICIALLY STARTS THE CLOCK ↓↓↓
+# ↓↓↓ PREVENT OFF-DUTY ACCEPTANCE ↓↓↓
 @app.route('/api/tickets/<ticket_id>/accept', methods=['PUT'])
 def accept(ticket_id):
+    data = request.get_json() or {}
+    tech_name = data.get('tech_name')
     conn = get_db_connection()
     try:
+        # 1. Block action if they are clocked out!
+        if tech_name:
+            tech = conn.execute("SELECT is_on_shift FROM technicians WHERE name = ?", (tech_name,)).fetchone()
+            if tech and tech['is_on_shift'] == 0:
+                return jsonify({"status": "error", "message": "Action Denied: You cannot accept tasks while Off Duty. Please Clock In first."}), 403
+
+        # 2. Proceed with acceptance
         ticket = conn.execute('SELECT * FROM tickets WHERE ticket_id = ?', (ticket_id,)).fetchone()
-        # The Fix: We inject started_at = CURRENT_TIMESTAMP right here!
         conn.execute("UPDATE tickets SET status = 'In Progress', started_at = CURRENT_TIMESTAMP WHERE ticket_id = ?", (ticket_id,))
+        
         if ticket: 
             add_notification(ticket['user_name'], None, f"IN PROGRESS: Technician has started working on {ticket_id}.", db_conn=conn)
             notify_status_change(ticket_id, 'In Progress', db_conn=conn)
+        
         conn.commit()
         return jsonify({"status": "success"}), 200
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+# ↑↑↑ END OFF-DUTY BLOCK ↑↑↑
 # ↑↑↑ END OF FIX ↑↑↑
 
 # ↓↓↓ REPLACED RESOLVE ROUTE & NEW START ROUTE ↓↓↓
@@ -683,9 +742,13 @@ def get_leaderboard():
 
 
 
+# ↓↓↓ BATCH 6: UPGRADED QA ROUTE WITH FEEDBACK ↓↓↓
 @app.route('/api/qa/<ticket_id>', methods=['GET'])
 def handle_qa_response(ticket_id):
     answer = request.args.get('answer', 'yes').lower()
+    rating = request.args.get('rating', type=int, default=5) # New! Default to 5 stars
+    feedback = request.args.get('feedback', 'No written feedback provided.') # New!
+    
     conn = get_db_connection()
     try:
         ticket = conn.execute("SELECT * FROM tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
@@ -693,17 +756,24 @@ def handle_qa_response(ticket_id):
             return "<h1>Error</h1><p>Ticket not found.</p>", 404
             
         if answer == 'yes':
-            # Job well done. Close it out permanently.
-            conn.execute("UPDATE tickets SET status = 'Closed', last_updated_at = CURRENT_TIMESTAMP WHERE ticket_id = ?", (ticket_id,))
-            conn.execute("UPDATE technicians SET points = points + 10 WHERE name = ?", (ticket['assigned_technician'],)) # <--- ADD THIS LINE
-            add_notification(ticket['assigned_technician'], None, f"🎉 QA Passed! +10 Points awarded. User confirmed {ticket_id} is fixed.", db_conn=conn)
+            # Job well done. Close it out permanently and save the rating!
+            conn.execute('''UPDATE tickets 
+                            SET status = 'Closed', last_updated_at = CURRENT_TIMESTAMP, 
+                                user_rating = ?, user_feedback = ? 
+                            WHERE ticket_id = ?''', (rating, feedback, ticket_id))
+            
+            # Award points! Base 10 points + Bonus points for 5-star reviews
+            points_awarded = 10 + (rating * 2) 
+            conn.execute("UPDATE technicians SET points = points + ? WHERE name = ?", (points_awarded, ticket['assigned_technician'])) 
+            
+            add_notification(ticket['assigned_technician'], None, f"🎉 QA Passed! +{points_awarded} Points. User rated you {rating} Stars!", db_conn=conn)
             conn.commit()
-            return "<h1 style='color: #10b981; font-family: sans-serif;'>Thank you!</h1><p style='font-family: sans-serif;'>We are glad the issue is resolved. Have a great day!</p>"
+            return f"<h1 style='color: #10b981; font-family: sans-serif;'>Thank you!</h1><p style='font-family: sans-serif;'>Your {rating}-star rating has been recorded for {ticket['assigned_technician']}. Have a great day!</p>"
         
         else:
             # AI ESCALATION: The tech failed the QA check. PENALIZE 5 POINTS!
             conn.execute("UPDATE tickets SET status = 'Escalated', priority = 'Urgent', last_updated_at = CURRENT_TIMESTAMP WHERE ticket_id = ?", (ticket_id,))
-            conn.execute("UPDATE technicians SET points = points - 5 WHERE name = ?", (ticket['assigned_technician'],)) # <--- ADD THIS LINE
+            conn.execute("UPDATE technicians SET points = points - 5 WHERE name = ?", (ticket['assigned_technician'],)) 
             add_notification(None, 'Portal Admin', f"🚨 QA FAILED: {ticket_id} was not fixed properly by {ticket['assigned_technician']}! Escalated to URGENT.", is_urgent=1, db_conn=conn)
             add_notification(ticket['assigned_technician'], None, f"⚠️ QA ALERT: -5 Points. User reported {ticket_id} is STILL BROKEN.", is_urgent=1, db_conn=conn)
             conn.commit()
@@ -712,6 +782,8 @@ def handle_qa_response(ticket_id):
         return str(e), 500
     finally:
         conn.close()
+# ↑↑↑ END UPGRADED QA ROUTE ↑↑↑
+
 @app.route('/api/technicians/toggle-shift', methods=['PUT'])
 def toggle_shift():
     data = request.json
@@ -723,6 +795,25 @@ def toggle_shift():
             return jsonify({"status": "error", "message": "Technician not found."}), 404
             
         new_status = 0 if tech['is_on_shift'] == 1 else 1
+        
+        # --- STRICT TIME LIMIT LOGIC ---
+        # If the technician is trying to clock IN (1), check the system clock
+        if new_status == 1:
+            from datetime import datetime
+            now = datetime.now()
+            current_hour = now.hour
+            current_minute = now.minute
+            
+            # Check-In Window: Hour MUST be 7, and minute MUST be 45 or less.
+           # if current_hour != 7 or current_minute > 45:
+                # We show them exactly what time the server thinks it is so they can't argue!
+            #    time_str = now.strftime('%I:%M %p')
+             #   return jsonify({
+              #      "status": "error", 
+               #     "message": f"Late Check-In Blocked.\n\nYou must clock in strictly between 07:00 AM and 07:45 AM.\nCurrent server time: {time_str}."
+                #}), 403
+        # ------------------------
+
         conn.execute("UPDATE technicians SET is_on_shift = ? WHERE name = ?", (new_status, tech_name))
         
         status_msg = "Clocked In: You are now receiving AI dispatches." if new_status == 1 else "Clocked Out: AI dispatches paused."
@@ -734,6 +825,8 @@ def toggle_shift():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
+# ↑↑↑ END TIME-GATED SHIFT TOGGLE ↑↑↑
 
 @app.route('/api/inventory', methods=['GET'])
 def get_inventory():
@@ -774,14 +867,20 @@ def handle_part_request():
     except Exception as e: return jsonify({"status": "error", "message": str(e)}), 500
     finally: conn.close()
 
+# ↓↓↓ REPLACED AI SEARCH ROUTE (HYBRID REGEX + LIVE SEARCH) ↓↓↓
 @app.route('/api/inventory/search-online', methods=['POST'])
 def search_online():
     part_name = request.json.get('part_name')
     try:
         if client: 
-            prompt = f"Search the live internet for the current price of '{part_name}' in India. Provide a strictly factual 3-sentence summary: State the exact real website name where it is currently sold (e.g., Amazon.in, Moglix, IndustryBuying, or IndiaMart), the actual real-time price in INR (₹), and the estimated delivery time. Do not make up prices; use the live search data."
-            
-            # The Magic: This tells Gemini to actually browse Google Search!
+            prompt = f"""Search the live internet for where to buy '{part_name}' in India right now. 
+            Return EXACTLY a JSON array of 3 trusted Indian suppliers (e.g., Moglix, Amazon.in, Flipkart, IndustryBuying). 
+            Each object must contain: "vendor", "price", "delivery", and "url".
+            CRITICAL RULE FOR URLS: Do not try to guess a specific product link. Instead, generate a 'General Search URL' for that website that searches for the part name. 
+            Example for Amazon: 'https://www.amazon.in/s?k={part_name.replace(' ', '+')}'
+            Example for Moglix: 'https://www.moglix.com/search?q={part_name.replace(' ', '+')}'
+            Ensure the URLs are properly formatted for searching."""
+            # We MUST remove response_mime_type to use the Google Search tool!
             config = types.GenerateContentConfig(
                 tools=[{"google_search": {}}]
             )
@@ -790,12 +889,30 @@ def search_online():
                 contents=prompt,
                 config=config
             )
-            analysis = response.text
+            
+            # Ultra-Aggressive Regex Parser
+            import re
+            import json
+            
+            raw_text = response.text.strip()
+            
+            # Find the FIRST '[' and the LAST ']' to isolate the JSON array completely.
+            start_index = raw_text.find('[')
+            end_index = raw_text.rfind(']')
+            
+            if start_index != -1 and end_index != -1 and end_index > start_index:
+                json_clean = raw_text[start_index:end_index + 1]
+                suppliers = json.loads(json_clean)
+                return jsonify({"status": "success", "suppliers": suppliers})
+            else:
+                return jsonify({"status": "error", "message": "AI failed to format data."})
+                
         else:
-            analysis = f"Estimated price for {part_name} is ₹850 on Amazon Business India. Delivery: 2 Days."
-        return jsonify({"status": "success", "analysis": analysis})
+            return jsonify({"status": "error", "message": "AI not configured."})
     except Exception as e:
+        print("AI Search Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
+# ↑↑↑ END OF AI SEARCH ROUTE ↑↑↑
 
 @app.route('/api/inventory/buy', methods=['POST'])
 def buy_part():
@@ -811,9 +928,7 @@ def buy_part():
 # ↑↑↑ END OF UPGRADED BLOCK ↑↑↑
 
 
-# ==========================================
-# 6. CENTRAL AI MONITORING LOOP
-# ==========================================
+
 # ==========================================
 # 6. CENTRAL AI MONITORING LOOP
 # ==========================================
@@ -889,7 +1004,7 @@ def monitoring_agent_loop():
             
             
             # ↓↓↓ REPLACED AI DISPATCHER: DYNAMIC MINUTE TRACKING ↓↓↓
-            techs = conn.execute("SELECT name, max_shift_hours FROM technicians WHERE is_on_shift = 1").fetchall()
+            techs = conn.execute("SELECT name, max_shift_hours, overtime_opt_in FROM technicians WHERE is_on_shift = 1 AND on_break = 0").fetchall()
             for t in techs:
                 max_minutes = (t['max_shift_hours'] if t['max_shift_hours'] else 8) * 60
                 
@@ -919,7 +1034,7 @@ def monitoring_agent_loop():
                 conn.execute("UPDATE technicians SET current_active_hours = ? WHERE name = ?", (minutes_worked_today, t['name']))
                 
                 # 5. ASSIGNMENT LOGIC: If they have time left in their shift AND no active tasks, give them 1 task
-                if minutes_worked_today < max_minutes and len(active_tickets) == 0:
+                if (minutes_worked_today < max_minutes or t['overtime_opt_in'] == 1) and len(active_tickets) == 0:
                     next_ticket = conn.execute('''
                         SELECT ticket_id FROM tickets 
                         WHERE assigned_technician = ? AND status = 'Pending' 
@@ -930,18 +1045,29 @@ def monitoring_agent_loop():
                         conn.execute("UPDATE tickets SET status = 'Assigned' WHERE ticket_id = ?", (next_ticket['ticket_id'],))
                         add_notification(t['name'], None, f"NEW ASSIGNMENT: Task {next_ticket['ticket_id']} assigned.", db_conn=conn)
 # ↑↑↑ END OF REPLACED AI DISPATCHER ↑↑↑
+# ↓↓↓ NEW: AUTO-REASSIGN ABSENT TECHNICIAN TASKS ↓↓↓
+            # If a tech clocks out (is_on_shift = 0), strip them of their pending tasks and return to the pool
+            absent_tasks = conn.execute('''
+                SELECT ticket_id, assigned_technician FROM tickets 
+                WHERE status IN ('Pending', 'Assigned') 
+                AND assigned_technician IN (SELECT name FROM technicians WHERE is_on_shift = 0)
+            ''').fetchall()
+            
+            for task in absent_tasks:
+                conn.execute("UPDATE tickets SET assigned_technician = 'Unassigned', status = 'Pending' WHERE ticket_id = ?", (task['ticket_id'],))
+                add_notification(None, 'Portal Admin', f"SYSTEM REBALANCE: {task['assigned_technician']} went off duty. {task['ticket_id']} returned to AI Dispatcher.", is_urgent=1, db_conn=conn)
+            # ↑↑↑ END AUTO-REASSIGN ↑↑↑
                 
             overdue = conn.execute("SELECT ticket_id FROM tickets WHERE priority IN ('Urgent', 'High') AND status = 'Pending' AND assigned_technician = 'Unassigned'").fetchall()
             for o in overdue:
                 conn.execute("UPDATE tickets SET status = 'Escalated' WHERE ticket_id = ?", (o['ticket_id'],))
                 add_notification(None, 'Portal Admin', f"ESCALATION: {o['ticket_id']} is critical and unassigned! Intervene.", is_urgent=1, db_conn=conn)
             
-            unassigned = conn.execute("SELECT ticket_id, department FROM tickets WHERE assigned_technician = 'Unassigned' AND status = 'Pending'").fetchall()
+            unassigned = conn.execute("SELECT ticket_id, department, building FROM tickets WHERE assigned_technician = 'Unassigned' AND status = 'Pending'").fetchall()
             for u in unassigned:
-                tech = tool_get_available_technician(u['department'], db_conn=conn)
+                tech = tool_get_available_technician(u['department'], u['building'], db_conn=conn)
                 if tech['status'] == 'success':
                     tool_assign_ticket(u['ticket_id'], tech['technician_name'], db_conn=conn)
-                    
             conn.commit()
         except Exception as e: 
             print("Monitor Loop Error:", e)
@@ -962,7 +1088,630 @@ def check_audit():
         return jsonify([dict(l) for l in logs])
     finally:
         conn.close()
+        # ↓↓↓ FEATURE 1: TOOL CHECKOUT SYSTEM ↓↓↓
+@app.route('/api/tools/checkout', methods=['POST'])
+def checkout_tool():
+    data = request.json
+    conn = get_db_connection()
+    try:
+        # Smart Auto-Create: Adds the table without wiping the DB!
+        conn.execute('''CREATE TABLE IF NOT EXISTS tool_checkouts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        tool_name TEXT,
+                        tech_name TEXT,
+                        checkout_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        status TEXT DEFAULT 'Borrowed'
+                    )''')
+        
+        conn.execute('INSERT INTO tool_checkouts (tool_name, tech_name) VALUES (?, ?)', 
+                     (data['tool_name'], data['tech_name']))
+        conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+    finally:
+        conn.close()
 
+@app.route('/api/tools/active', methods=['GET'])
+def get_active_tools():
+    conn = get_db_connection()
+    try:
+        conn.execute('''CREATE TABLE IF NOT EXISTS tool_checkouts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, tool_name TEXT, tech_name TEXT, checkout_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, status TEXT DEFAULT 'Borrowed'
+                    )''')
+        logs = conn.execute("SELECT * FROM tool_checkouts ORDER BY status ASC, checkout_date DESC").fetchall()
+        return jsonify({"status": "success", "data": [dict(l) for l in logs]})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+    finally:
+        conn.close()
+
+@app.route('/api/tools/return/<int:log_id>', methods=['PUT'])
+def return_tool(log_id):
+    conn = get_db_connection()
+    try:
+        conn.execute("UPDATE tool_checkouts SET status = 'Returned' WHERE id = ?", (log_id,))
+        conn.commit()
+        return jsonify({"status": "success"})
+    finally:
+        conn.close()
+# ↑↑↑ END OF TOOL CHECKOUT SYSTEM ↑↑↑
+# ↓↓↓ FEATURE 4: DEPARTMENTAL BUDGET ANALYTICS ↓↓↓
+@app.route('/api/analytics/budget')
+def get_budget_analytics():
+    try:
+        # In a fully scaled app, this would dynamically sum the cost of parts 
+        # used in resolved tickets per department. For our dashboard, we will 
+        # generate realistic live data based on your core departments.
+        departments = [
+            "IT & Network Services", "Electrical Maintenance", 
+            "Plumbing Maintenance", "Civil Maintenance", 
+            "Air Conditioning & Ventilation"
+        ]
+        import random
+        data = []
+        for dept in departments:
+            # Allocate a random budget between ₹50k and ₹200k
+            budget = random.randint(50000, 200000)
+            # Simulate a realistic spend against that budget
+            spent = random.randint(15000, budget - 5000)
+            data.append({"department": dept, "budget": budget, "spent": spent})
+            
+        return jsonify({"status": "success", "data": data})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+# ↑↑↑ END OF BUDGET ANALYTICS ↑↑↑
+# ↓↓↓ FEATURES 5, 6, & 7: ADVANCED STOCKROOM AI ↓↓↓
+
+@app.route('/api/inventory/alternative', methods=['POST'])
+def get_ai_alternative():
+    part_name = request.json.get('part_name')
+    conn = get_db_connection()
+    try:
+        # Get all currently in-stock items
+        available = conn.execute("SELECT item_name, category FROM inventory WHERE stock_level > 0").fetchall()
+        avail_str = ", ".join([f"{a['item_name']} ({a['category']})" for a in available])
+        
+        if client:
+            prompt = f"A technician desperately needs '{part_name}' but it is completely out of stock. Based ONLY on this list of available inventory: [{avail_str}], what is the single best emergency alternative they can use? Keep your response under 15 words. Format: 'AI Suggests: [Item Name]'"
+            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            return jsonify({"status": "success", "suggestion": response.text.strip()})
+        else:
+            return jsonify({"status": "error", "message": "AI not configured."})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+    finally:
+        conn.close()
+
+@app.route('/api/inventory/price-history/<item_name>', methods=['GET'])
+def get_price_history(item_name):
+    # Generates realistic trailing 6-month historical data for the chart
+    import random
+    from datetime import datetime, timedelta
+    conn = get_db_connection()
+    try:
+        item = conn.execute("SELECT unit_price FROM inventory WHERE item_name = ?", (item_name,)).fetchone()
+        base_price = item['unit_price'] if item else 1000
+        
+        history = []
+        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        current_month = datetime.now().month
+        
+        for i in range(5, -1, -1):
+            month_idx = (current_month - i - 1) % 12
+            # Fluctuate the historical price by +/- 15%
+            fluctuation = base_price * random.uniform(-0.15, 0.15)
+            history.append({
+                "month": months[month_idx],
+                "price": round(base_price + fluctuation, 2)
+            })
+            
+        return jsonify({"status": "success", "data": history})
+    finally:
+        conn.close()
+
+@app.route('/api/inventory/draft-pos', methods=['GET'])
+def get_draft_pos():
+    conn = get_db_connection()
+    try:
+        # Find all items that are at or below their reorder threshold
+        drafts = conn.execute("SELECT * FROM inventory WHERE stock_level <= reorder_threshold").fetchall()
+        return jsonify({"status": "success", "data": [dict(d) for d in drafts]})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+    finally:
+        conn.close()
+# ↑↑↑ END OF ADVANCED STOCKROOM AI ↑↑↑
+# ↓↓↓ FEATURE 1: QUICK STOCK ADJUSTMENT ↓↓↓
+@app.route('/api/inventory/adjust', methods=['POST'])
+def adjust_stock():
+    data = request.json
+    item_name = data.get('item_name')
+    delta = data.get('delta') # Will be +1 or -1
+    
+    conn = get_db_connection()
+    try:
+        item = conn.execute("SELECT stock_level FROM inventory WHERE item_name = ?", (item_name,)).fetchone()
+        if not item: return jsonify({"status": "error", "message": "Item not found"})
+        
+        # Prevent stock from going negative
+        new_stock = max(0, item['stock_level'] + delta)
+        conn.execute("UPDATE inventory SET stock_level = ? WHERE item_name = ?", (new_stock, item_name))
+        conn.commit()
+        
+        return jsonify({"status": "success", "new_stock": new_stock})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+    finally:
+        conn.close()
+# ↑↑↑ END OF QUICK STOCK ADJUSTMENT ↑↑↑
+# ↓↓↓ FEATURE 6: INVENTORY DISCREPANCY AUDIT LOG ↓↓↓
+@app.route('/api/inventory/audit', methods=['POST'])
+def log_inventory_audit():
+    data = request.json
+    conn = get_db_connection()
+    try:
+        # Auto-create the audit table safely
+        conn.execute('''CREATE TABLE IF NOT EXISTS inventory_audit (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        item_name TEXT, tech_name TEXT, change_amount INTEGER, 
+                        reason TEXT, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+        
+        # Deduct the missing stock
+        conn.execute("UPDATE inventory SET stock_level = max(0, stock_level - ?) WHERE item_name = ?", 
+                     (data['amount_lost'], data['item_name']))
+        
+        # Permanently record the reason
+        conn.execute("INSERT INTO inventory_audit (item_name, tech_name, change_amount, reason) VALUES (?, ?, ?, ?)", 
+                     (data['item_name'], data['tech_name'], -abs(int(data['amount_lost'])), data['reason']))
+        conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+    finally:
+        conn.close()
+# ↑↑↑ END OF DISCREPANCY AUDIT LOG ↑↑↑
+# ↓↓↓ FEATURE 8: SMART KITTING (BUNDLE CHECKOUT) ↓↓↓
+@app.route('/api/inventory/checkout-kit', methods=['POST'])
+def checkout_kit():
+    data = request.json
+    kit_type = data.get('kit_type')
+    conn = get_db_connection()
+    try:
+        # Define the "Recipes" for standard maintenance kits
+        kits = {
+            "AC Service Kit": [("Industrial AC Filter (24x24)", 1), ("HVAC Refrigerant (R410a)", 1)],
+            "Basic Plumbing Repair": [("Heavy Duty PVC Pipe (1-inch)", 2), ("Industrial Sealant Tape", 1)]
+        }
+        
+        if kit_type not in kits: 
+            return jsonify({"status": "error", "message": "Kit recipe not found in database."})
+        
+        # Deduct all items in the kit simultaneously
+        for item_name, qty in kits[kit_type]:
+            conn.execute("UPDATE inventory SET stock_level = max(0, stock_level - ?) WHERE item_name = ?", (qty, item_name))
+            
+        conn.commit()
+        return jsonify({"status": "success", "message": f"{kit_type} checked out successfully!"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+    finally:
+        conn.close()
+# ↓↓↓ FEATURE 5: CAMPUS HEATMAP API ↓↓↓
+@app.route('/api/ai/heatmap')
+def get_campus_heatmap():
+    conn = get_db_connection()
+    try:
+        # Count all unresolved tickets grouped by building
+        data = conn.execute('''
+            SELECT building, COUNT(*) as count 
+            FROM tickets 
+            WHERE status != 'Resolved' 
+            GROUP BY building
+        ''').fetchall()
+        
+        # If the database has no active tickets, provide a clean empty state
+        if not data:
+            return jsonify({"status": "success", "labels": ["Building A", "Building B", "Library", "Main Building"], "data": [0,0,0,0]})
+        
+        labels = [d['building'] for d in data]
+        counts = [d['count'] for d in data]
+        
+        return jsonify({"status": "success", "labels": labels, "data": counts})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+    finally:
+        conn.close()
+
+
+# Global state to track emergency override
+LOCKDOWN_MODE = False
+
+@app.route('/api/ai/system-status')
+def get_system_status():
+    global LOCKDOWN_MODE
+    conn = get_db_connection()
+    try:
+        if LOCKDOWN_MODE:
+            return jsonify({
+                "status": "success",
+                "classification": {"text": "HALTED (CRISIS)", "color": "#ef4444"},
+                "assignment": {"text": "EMERGENCY ONLY", "color": "#ef4444"},
+                "sla": {"text": "CRITICAL OVERRIDE", "color": "#ef4444"},
+                "lockdown": True
+            })
+
+        pending = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status = 'Pending'").fetchone()['c']
+        active = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status IN ('Assigned', 'In Progress')").fetchone()['c']
+        
+        if pending > 0:
+            class_status, class_color = f"Processing ({pending})", "#38bdf8"
+            assign_status, assign_color = "Routing...", "#a855f7"
+        else:
+            class_status, class_color = "Standby (Idle)", "#10b981"
+            assign_status, assign_color = "Standby (Idle)", "#10b981"
+            
+        if active > 0:
+            sla_status, sla_color = f"Tracking ({active})", "#fbbf24"
+        else:
+            sla_status, sla_color = "Monitoring", "#10b981"
+
+        return jsonify({
+            "status": "success",
+            "classification": {"text": class_status, "color": class_color},
+            "assignment": {"text": assign_status, "color": assign_color},
+            "sla": {"text": sla_status, "color": sla_color},
+            "lockdown": False
+        })
+    except Exception as e:
+        return jsonify({"status": "error"})
+    finally:
+        conn.close()
+
+@app.route('/api/ai/lockdown', methods=['POST'])
+def toggle_lockdown():
+    global LOCKDOWN_MODE
+    data = request.get_json() or {}
+    LOCKDOWN_MODE = data.get('enabled', False)
+    
+    conn = get_db_connection()
+    try:
+        if LOCKDOWN_MODE:
+            # System automation changes: bump all current Emergency tasks to top priority
+            conn.execute("UPDATE tickets SET priority = 'High' WHERE status != 'Resolved' AND tags = 'Emergency'")
+            conn.commit()
+        return jsonify({"status": "success", "lockdown_mode": LOCKDOWN_MODE})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+    finally:
+        conn.close()
+
+# ↓↓↓ REAL GEMINI API & RLHF ROUTING ↓↓↓
+
+# ↓↓↓ GLOBALS FOR AI CACHING ↓↓↓
+import time
+LAST_BRIEFING_TEXT = ""
+LAST_BRIEFING_TIME = 0
+
+# ↓↓↓ GLOBALS FOR AI CACHING ↓↓↓
+import time
+LAST_BRIEFING_TEXT = ""
+LAST_BRIEFING_TIME = 0
+
+@app.route('/api/ai/briefing')
+def get_campus_briefing():
+    global LOCKDOWN_MODE, LAST_BRIEFING_TEXT, LAST_BRIEFING_TIME
+    conn = get_db_connection()
+    try:
+        if LOCKDOWN_MODE:
+            return jsonify({"status": "success", "briefing": "CRITICAL PROTOCOL ACTIVE: All automated non-emergency routing is suspended. Technicians are locked to high-priority infrastructure hazards."})
+        
+        # 1. Gather REAL live stats from your database
+        pending_count = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status = 'Pending'").fetchone()['c']
+        active_count = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status IN ('Assigned', 'In Progress')").fetchone()['c']
+        low_stock = conn.execute("SELECT COUNT(*) as c FROM inventory WHERE stock_level <= reorder_threshold").fetchone()['c']
+        
+        fallback_briefing = f"Campus health is stable. We currently have {pending_count} unassigned requests, {active_count} jobs actively being worked on, and {low_stock} stockroom items falling below safety thresholds."
+        
+        # 2. THE UPGRADED CACHE FIX: Always block requests if 60 seconds haven't passed
+        if time.time() - LAST_BRIEFING_TIME < 60:
+            # If we have a cached text, use it. Otherwise, use the fallback.
+            return jsonify({"status": "success", "briefing": LAST_BRIEFING_TEXT or fallback_briefing})
+
+        # 3. Try to use Gemini, and gracefully handle quota limits
+        try:
+            if 'client' in globals() and client:
+                prompt = f"You are the AI manager of a campus maintenance system. Write a quick, professional 2-sentence morning briefing. Current stats: {pending_count} pending tickets, {active_count} active tickets, and {low_stock} low stock items. Be concise, operational, and do not use formatting like bolding or asterisks."
+                response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+                
+                # Save the new response to our global cache variables
+                LAST_BRIEFING_TEXT = response.text.strip()
+                LAST_BRIEFING_TIME = time.time()
+                
+                return jsonify({"status": "success", "briefing": LAST_BRIEFING_TEXT})
+            else:
+                return jsonify({"status": "success", "briefing": fallback_briefing})
+        except Exception as gemini_error:
+            print(f"Gemini API Skipped: {gemini_error}")
+            
+            # --- THE CRITICAL FIX IS HERE ---
+            # Update the cache timer even on failure! This stops the infinite retry loop.
+            LAST_BRIEFING_TIME = time.time() 
+            
+            return jsonify({"status": "success", "briefing": fallback_briefing})
+            
+    except Exception as e:
+        return jsonify({"status": "error", "briefing": "AI Telemetry offline."})
+    finally:
+        conn.close()
+
+@app.route('/api/ai/recent-decisions')
+def get_recent_decisions():
+    conn = get_db_connection()
+    try:
+        # Pull the 3 REAL tickets that were most recently assigned to technicians
+        recent = conn.execute('''
+            SELECT ticket_id, issue, assigned_technician, department 
+            FROM tickets 
+            WHERE status != 'Pending' AND assigned_technician != 'Unassigned'
+            ORDER BY created_at DESC LIMIT 3
+        ''').fetchall()
+        
+        decisions = []
+        import random
+        for r in recent:
+            decisions.append({
+                "id": r['ticket_id'], 
+                "ticket": r['issue'], 
+                "assigned_to": f"{r['assigned_technician']} ({r['department']})", 
+                "confidence": random.randint(85, 98) # Keep a fun fake confidence score
+            })
+        return jsonify({"status": "success", "decisions": decisions})
+    except Exception as e:
+        return jsonify({"status": "error"})
+    finally:
+        conn.close()
+# ↑↑↑ END OF REAL GEMINI & RLHF ↑↑↑
+# ↓↓↓ THE 5 HR & OPS MANAGEMENT ROUTES ↓↓↓
+
+@app.route('/api/technicians/toggle-break', methods=['PUT'])
+def toggle_break():
+    tech_name = request.json.get('name')
+    conn = get_db_connection()
+    try:
+        tech = conn.execute("SELECT on_break FROM technicians WHERE name = ?", (tech_name,)).fetchone()
+        new_status = 0 if tech['on_break'] == 1 else 1
+        conn.execute("UPDATE technicians SET on_break = ? WHERE name = ?", (new_status, tech_name))
+        conn.commit()
+        return jsonify({"status": "success"})
+    finally: conn.close()
+
+@app.route('/api/technicians/toggle-overtime', methods=['PUT'])
+def toggle_overtime():
+    tech_name = request.json.get('name')
+    conn = get_db_connection()
+    try:
+        tech = conn.execute("SELECT overtime_opt_in FROM technicians WHERE name = ?", (tech_name,)).fetchone()
+        new_status = 0 if tech['overtime_opt_in'] == 1 else 1
+        conn.execute("UPDATE technicians SET overtime_opt_in = ? WHERE name = ?", (new_status, tech_name))
+        conn.commit()
+        return jsonify({"status": "success"})
+    finally: conn.close()
+
+@app.route('/api/technicians/leave-requests', methods=['POST', 'GET'])
+def handle_leaves():
+    conn = get_db_connection()
+    try:
+        if request.method == 'POST':
+            data = request.json
+            conn.execute("INSERT INTO leave_requests (tech_name, start_date, end_date, reason) VALUES (?, ?, ?, ?)", 
+                         (data['tech_name'], data['start_date'], data['end_date'], data['reason']))
+            add_notification(None, 'Portal Admin', f"LEAVE REQUEST: {data['tech_name']} requested time off from {data['start_date']} to {data['end_date']}.", db_conn=conn)
+            conn.commit()
+            return jsonify({"status": "success"})
+        else:
+            tech_name = request.args.get('name')
+            leaves = conn.execute("SELECT * FROM leave_requests WHERE tech_name = ? ORDER BY id DESC", (tech_name,)).fetchall()
+            return jsonify({"status": "success", "data": [dict(l) for l in leaves]})
+    finally: conn.close()
+
+@app.route('/api/technicians/shift-trades', methods=['POST', 'GET'])
+def handle_trades():
+    conn = get_db_connection()
+    try:
+        if request.method == 'POST':
+            data = request.json
+            conn.execute("INSERT INTO shift_trades (requester, department, target_date) VALUES (?, ?, ?)", 
+                         (data['requester'], data['department'], data['target_date']))
+            conn.commit()
+            return jsonify({"status": "success"})
+        else:
+            dept = request.args.get('department')
+            trades = conn.execute("SELECT * FROM shift_trades WHERE department = ? AND status = 'Pending' ORDER BY id DESC", (dept,)).fetchall()
+            return jsonify({"status": "success", "data": [dict(t) for t in trades]})
+    finally: conn.close()
+
+@app.route('/api/technicians/timesheet/<tech_name>', methods=['GET'])
+def download_timesheet(tech_name):
+    conn = get_db_connection()
+    try:
+        tickets = conn.execute("SELECT ticket_id, issue, time_taken_mins, last_updated_at FROM tickets WHERE assigned_technician = ? AND status IN ('Resolved', 'Closed')", (tech_name,)).fetchall()
+        import csv
+        from io import StringIO
+        from flask import Response
+        si = StringIO()
+        cw = csv.writer(si)
+        cw.writerow(['Ticket ID', 'Job Description', 'Minutes Billed', 'Date Completed'])
+        total_mins = 0
+        for t in tickets:
+            cw.writerow([t['ticket_id'], t['issue'], t['time_taken_mins'], t['last_updated_at']])
+            total_mins += t['time_taken_mins']
+        cw.writerow([])
+        cw.writerow(['TOTAL BILLABLE HOURS:', round(total_mins / 60, 2), 'HOURS', ''])
+        return Response(si.getvalue(), mimetype="text/csv", headers={"Content-Disposition": f"attachment;filename=Timesheet_{tech_name}.csv"})
+    finally: conn.close()
+# ↑↑↑ END OF 5 HR ROUTES ↑↑↑
+# ↓↓↓ BATCH 4: PERFORMANCE & GAMIFICATION ROUTE ↓↓↓
+@app.route('/api/technicians/performance', methods=['GET'])
+def get_tech_performance():
+    tech_name = request.args.get('name')
+    conn = get_db_connection()
+    try:
+        # Fetch real feedback if available
+        feedbacks = conn.execute("SELECT ticket_id, user_name, issue, user_rating, user_feedback, last_updated_at FROM tickets WHERE assigned_technician = ? AND status = 'Closed' AND user_rating > 0 ORDER BY last_updated_at DESC LIMIT 5", (tech_name,)).fetchall()
+        
+        tech = conn.execute("SELECT badges_unlocked, points FROM technicians WHERE name = ?", (tech_name,)).fetchone()
+        badges_str = tech['badges_unlocked'] if tech and tech['badges_unlocked'] else "Welcome Aboard"
+        badges = [b.strip() for b in badges_str.split(',') if b.strip()]
+        pts = tech['points'] if tech else 0
+
+        feedback_list = [dict(f) for f in feedbacks]
+        
+        # If no real feedback exists yet, inject demo data so the dashboard looks amazing instantly
+        if not feedback_list:
+            feedback_list = [
+                {"ticket_id": "REQ-9901", "user_name": "Dr. Smith", "issue": "Projector wiring failure", "user_rating": 5, "user_feedback": "Incredibly fast response time! Saved my lecture.", "last_updated_at": "Today"},
+                {"ticket_id": "REQ-8822", "user_name": "Admin Team", "issue": "HVAC Filter replacement", "user_rating": 4, "user_feedback": "Good job, very professional.", "last_updated_at": "Yesterday"}
+            ]
+            badges.extend(["First Fix", "Speed Demon", "5-Star Agent"])
+        
+        # Radar stats out of 100 (SLA, Speed, Communication, Safety, Quality)
+        radar = [min(100, 70 + (pts * 2)), min(100, 80 + pts), 95, 100, min(100, 85 + pts)]
+        
+        return jsonify({
+            "status": "success", 
+            "feedbacks": feedback_list,
+            "radar": radar,
+            "badges": badges
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+# ↑↑↑ END BATCH 4 ↑↑↑
+# ↓↓↓ BATCH 5: SAFETY & OPS ROUTES ↓↓↓
+@app.route('/api/technicians/location', methods=['PUT'])
+def update_location():
+    data = request.json
+    conn = get_db_connection()
+    try:
+        conn.execute("UPDATE technicians SET current_building = ? WHERE name = ?", (data['building'], data['name']))
+        conn.commit()
+        return jsonify({"status": "success"})
+    finally: conn.close()
+
+@app.route('/api/tickets/sos', methods=['POST'])
+def trigger_sos():
+    data = request.json
+    tech_name = data.get('name')
+    bldg = data.get('building', 'Unknown')
+    conn = get_db_connection()
+    try:
+        ticket_id = 'SOS-' + str(random.randint(1000,9999))
+        issue = f"EMERGENCY SOS triggered by Technician {tech_name}"
+        conn.execute('INSERT INTO tickets (ticket_id, user_name, role, department, building, location, issue, priority, status, ai_analysis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (ticket_id, tech_name, 'Campus Technician', 'Security & Surveillance', bldg, 'User Live Location', issue, 'Urgent', 'Pending', 'CRITICAL OVERRIDE: SOS Panic Button Pressed.'))
+        add_notification(None, 'Portal Admin', f"🚨 SOS ALERT: {tech_name} pressed the panic button at {bldg}!", is_urgent=1, db_conn=conn)
+        conn.commit()
+        return jsonify({"status": "success", "ticket_id": ticket_id})
+    finally: conn.close()
+
+@app.route('/api/tickets/hazard', methods=['POST'])
+def report_hazard():
+    data = request.json
+    desc = data.get('description')
+    tech_name = data.get('name')
+    bldg = data.get('building', 'Unknown')
+    conn = get_db_connection()
+    try:
+        # Use Gemini to expand the 3-word description into a professional ticket!
+        prompt = f"A field technician quickly typed this hazard report: '{desc}'. Expand this into a formal, professional 2-sentence maintenance ticket issue."
+        if 'client' in globals() and client:
+            resp = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
+        else:
+            resp = f"Hazard reported by {tech_name}: {desc}"
+        
+        ai_decision = classify_ticket_with_ai(resp)
+        ticket_id = 'HAZ-' + str(random.randint(1000,9999))
+        
+        conn.execute('INSERT INTO tickets (ticket_id, user_name, role, department, building, location, issue, priority, ai_analysis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (ticket_id, tech_name, 'Campus Technician', ai_decision['department'], bldg, 'Reported via Snap&Report', resp, ai_decision['priority'], ai_decision['ai_analysis']))
+        
+        # Route it to the closest matching tech instantly
+        tech = tool_get_available_technician(ai_decision['department'], bldg, db_conn=conn)
+        if tech['status'] == 'success':
+            tool_assign_ticket(ticket_id, tech['technician_name'], db_conn=conn)
+        
+        conn.commit()
+        return jsonify({"status": "success", "ticket": resp})
+    finally: conn.close()
+# ↑↑↑ END BATCH 5 ↑↑↑
+# ↓↓↓ BATCH 7: ADVANCED KANBAN & AI TASK ASSISTANTS ↓↓↓
+@app.route('/api/tickets/<ticket_id>/update-status', methods=['PUT'])
+def update_ticket_status(ticket_id):
+    new_status = request.json.get('status')
+    conn = get_db_connection()
+    try:
+        conn.execute("UPDATE tickets SET status = ?, last_updated_at = CURRENT_TIMESTAMP WHERE ticket_id = ?", (new_status, ticket_id))
+        conn.commit()
+        return jsonify({"status": "success"})
+    finally: conn.close()
+
+@app.route('/api/ai/preflight', methods=['POST'])
+def ai_preflight():
+    issue = request.json.get('issue')
+    conn = get_db_connection()
+    try:
+        inv = conn.execute("SELECT item_name, stock_level FROM inventory").fetchall()
+        stock_list = ", ".join([f"{i['item_name']} (Qty: {i['stock_level']})" for i in inv])
+        
+        if 'client' in globals() and client:
+            try:
+                # Try to use Gemini
+                prompt = f"A technician is about to accept this issue: '{issue}'. Look at our live inventory: [{stock_list}]. Identify 1 or 2 parts they will likely need. Format reply as exactly: 'Requires: [parts]. Status: [In Stock / OUT OF STOCK]'."
+                resp = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
+                return jsonify({"status": "success", "analysis": resp})
+            except Exception as e:
+                # FALLBACK if Gemini is out of quota or busy!
+                return jsonify({"status": "success", "analysis": "Requires: Standard Toolkit. Status: IN STOCK (AI Fallback)"})
+                
+        return jsonify({"status": "error", "message": "AI offline."})
+    finally: conn.close()
+
+@app.route('/api/ai/summarize', methods=['POST'])
+def ai_summarize():
+    issue = request.json.get('issue')
+    if 'client' in globals() and client:
+        try:
+            prompt = f"Summarize this maintenance issue into a quick, 1-sentence TL;DR for a busy technician: {issue}"
+            resp = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
+            return jsonify({"status": "success", "summary": resp})
+        except Exception as e:
+             # FALLBACK if Gemini is out of quota or busy!
+             return jsonify({"status": "success", "summary": f"System Note: {issue[:60]}... (AI Quota Exhausted)"})
+             
+    return jsonify({"status": "error", "message": "AI offline."})
+
+@app.route('/api/ai/draft-update', methods=['POST'])
+def ai_draft_update():
+    data = request.get_json()
+    issue = data.get('issue')
+    status = data.get('status')
+    user_name = data.get('user_name', 'Campus Staff')
+    tech_name = data.get('tech_name', 'Campus Technician')
+    
+    if 'client' in globals() and client:
+        try:
+            # Tell Gemini to use the specific names!
+            prompt = f"Write a formal, polite email update to {user_name} regarding their reported issue: '{issue}'. Current Status is: '{status}'. Sign the email from {tech_name}."
+            resp = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
+            return jsonify({"status": "success", "draft": resp})
+        except Exception as e:
+            # FALLBACK with proper To and From variables!
+            fallback = f"Dear {user_name},\n\nThis is an automated update regarding your maintenance request. Its current status is now: {status}.\n\nBest regards,\n{tech_name}"
+            return jsonify({"status": "success", "draft": fallback})
+            
+    return jsonify({"status": "error", "message": "AI offline."})
 if __name__ == '__main__':
     init_db()
     monitor_thread = threading.Thread(target=monitoring_agent_loop, daemon=True)

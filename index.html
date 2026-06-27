@@ -8,6 +8,23 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         /* =========================================
+           14. KANBAN & SLA RING STYLES
+           ========================================= */
+        .kanban-board { display: flex; gap: 20px; overflow-x: auto; padding-bottom: 20px; min-height: 60vh; }
+        .kanban-board::-webkit-scrollbar { height: 8px; }
+        .kanban-board::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.5); border-radius: 4px; }
+        
+        .kanban-column { flex: 1; min-width: 320px; background: rgba(0,0,0,0.2); border-radius: 12px; padding: 15px; border: 1px solid rgba(255,255,255,0.1); }
+        .kanban-header { color: white; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; }
+        
+        .kanban-card { background: rgba(255,255,255,0.1); backdrop-filter: blur(8px); padding: 15px; border-radius: 8px; margin-bottom: 15px; cursor: grab; position: relative; border-left: 4px solid #38bdf8; transition: transform 0.2s; }
+        .kanban-card:active { cursor: grabbing; opacity: 0.8; transform: scale(0.98); }
+        
+        /* SLA Circular Ring Progress */
+        .sla-ring { position: absolute; top: 15px; right: 15px; width: 45px; height: 45px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 0.75rem; font-weight: bold; background: conic-gradient(#10b981 var(--p), rgba(255,255,255,0.1) 0); box-shadow: 0 0 10px rgba(0,0,0,0.5); }
+        .sla-ring-inner { width: 35px; height: 35px; background: #1b333e; border-radius: 50%; display: flex; justify-content: center; align-items: center; color: white; }
+        .sla-warning { background: conic-gradient(#ef4444 var(--p), rgba(255,255,255,0.1) 0); animation: pulse-red 2s infinite; }
+        /* =========================================
            1. GLOBAL RESET & BASE STYLES
            ========================================= */
         * { 
@@ -233,6 +250,27 @@
         .chat-options { padding: 15px 20px; background: rgba(0,0,0,0.2); border-top: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; gap: 8px; }
         .chat-option-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.2); color: #38bdf8; padding: 10px; border-radius: 8px; cursor: pointer; text-align: left; font-size: 0.85rem; transition: 0.2s; }
         .chat-option-btn:hover { background: rgba(56, 189, 248, 0.2); border-color: #38bdf8; color: white; }
+        /* FEATURE 3: PULSING CRITICAL BADGE */
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .pulse-badge {
+            background: #ef4444; color: white; padding: 4px 10px; border-radius: 4px; 
+            font-size: 0.75rem; font-weight: 800; letter-spacing: 0.5px;
+            animation: pulse-red 2s infinite; display: inline-block;
+        }
+        /* FEATURE 9: SUPPLIER HOVER CARD */
+        .supplier-tooltip { position: relative; display: inline-block; cursor: help; border-bottom: 1px dashed #38bdf8; }
+        .supplier-tooltip .tooltip-text {
+            visibility: hidden; width: 240px; background-color: rgba(26, 54, 68, 0.95); color: #fff; text-align: left;
+            backdrop-filter: blur(10px); border-radius: 8px; padding: 12px; position: absolute; z-index: 100; 
+            bottom: 125%; left: 50%; margin-left: -120px; opacity: 0; transition: opacity 0.3s; 
+            border: 1px solid rgba(56, 189, 248, 0.5); box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
+            font-weight: normal; font-size: 0.85rem; line-height: 1.6;
+        }
+        .supplier-tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
     </style>
 </head>
 <body>
@@ -533,32 +571,69 @@
     // MODULE CONFIGURATIONS
     // ==========================================
     const adminModules = [
-        { 
-            id: 'ai-feed', icon: 'fa-robot', name: 'AI Command Center', 
-            content: `
-                <div class="stats-grid">
-                    <div class="stat-card" style="cursor: pointer;" onclick="loadModule(adminModules[1])">
-                        <div class="stat-icon bg-blue"><i class="fa-solid fa-network-wired"></i></div>
-                        <div class="stat-info"><h4>Classification Agent</h4><h2>Active</h2></div>
+      // ↓↓↓ SLEEK GLASSMORPHISM AI COMMAND CENTER ↓↓↓
+    // ↓↓↓ AI COMMAND CENTER WITH HEATMAP ↓↓↓
+    // ↓↓↓ TRIPLE-INTEGRATION SYSTEM CONFIGURATION ↓↓↓
+   // ↓↓↓ CLEAN AI COMMAND CENTER (NO RLHF CLUTTER) ↓↓↓
+    { 
+        id: 'ai-feed', icon: 'fa-robot', name: 'AI Command Center', 
+        content: `
+            <div id="lockdown-alert-container" style="display: flex; gap: 20px; margin-bottom: 25px; align-items: center; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.2); padding: 20px; border-radius: 16px; transition: all 0.5s ease;">
+                <div style="flex: 1;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                        <i class="fa-solid fa-sparkles" style="color: #38bdf8;"></i>
+                        <span style="text-transform: uppercase; font-size: 0.75rem; letter-spacing: 1px; color: #38bdf8; font-weight: bold;">System Briefing</span>
                     </div>
-                    <div class="stat-card" style="cursor: pointer;" onclick="loadModule(adminModules[1])">
-                        <div class="stat-icon bg-purple"><i class="fa-solid fa-people-arrows"></i></div>
-                        <div class="stat-info"><h4>Assignment Agent</h4><h2>Active</h2></div>
+                    <p id="gemini-briefing-text" style="color: #e2e8f0; margin: 0; font-size: 0.95rem; line-height: 1.5;">Generating real-time operational summary...</p>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 180px; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 20px;">
+                    <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">CRISIS MANAGEMENT</span>
+                    <button id="btn-lockdown-toggle" onclick="executeCrisisOverride()" style="background: #ef4444; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px; width: 100%; justify-content: center; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); transition: all 0.3s ease;">
+                        <i class="fa-solid fa-shield-radiation"></i> LOCKDOWN AI
+                    </button>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 20px; margin-bottom: 25px; flex-wrap: wrap;">
+                <div style="flex: 1; display: flex; flex-direction: column; gap: 15px; min-width: 300px;">
+                    <h3 style="color: white; margin-bottom: 5px;"><i class="fa-solid fa-microchip"></i> Agent Status</h3>
+                    
+                    <div class="stat-card" style="box-shadow: 0 0 15px rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.2);">
+                        <div class="stat-icon bg-blue"><i class="fa-solid fa-network-wired fa-fade"></i></div>
+                        <div class="stat-info"><h4>Classification Agent</h4><h2 id="agent-class-status" style="color:#10b981;">Syncing...</h2></div>
                     </div>
-                    <div class="stat-card" style="cursor: pointer;" onclick="loadModule(adminModules[1])">
-                        <div class="stat-icon" style="background: rgba(254, 226, 226, 0.8); color: #991b1b;"><i class="fa-solid fa-eye"></i></div>
-                        <div class="stat-info"><h4>Monitoring Agent</h4><h2>Active</h2></div>
+                    
+                    <div class="stat-card" style="box-shadow: 0 0 15px rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.2);">
+                        <div class="stat-icon bg-purple"><i class="fa-solid fa-people-arrows fa-fade"></i></div>
+                        <div class="stat-info"><h4>Assignment Agent</h4><h2 id="agent-assign-status" style="color:#10b981;">Syncing...</h2></div>
+                    </div>
+                    
+                    <div class="stat-card" style="box-shadow: 0 0 15px rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2);">
+                        <div class="stat-icon" style="background: rgba(254, 226, 226, 0.8); color: #991b1b;"><i class="fa-solid fa-eye fa-fade"></i></div>
+                        <div class="stat-info"><h4>SLA Monitoring Agent</h4><h2 id="agent-sla-status" style="color:#10b981;">Syncing...</h2></div>
                     </div>
                 </div>
 
-                <div class="module-card" style="margin-top: 30px;">
-                    <h3 style="color: white; margin-bottom: 20px;"><i class="fa-solid fa-trophy" style="color: #fbbf24;"></i> Top Technicians Leaderboard</h3>
-                    <div id="leaderboard-area">
-                        <p style="color: rgba(255,255,255,0.6);">Loading scores...</p>
+                <div style="flex: 2; min-width: 400px; display: flex; flex-direction: column;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h3 style="color: white;"><i class="fa-solid fa-map-location-dot"></i> Live Campus Heatmap</h3>
+                        <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981;"><i class="fa-solid fa-satellite-dish fa-beat"></i> Active Radar</span>
+                    </div>
+                    <div class="module-card" style="flex-grow: 1; height: 320px; padding: 20px; display: flex; justify-content: center; align-items: center;">
+                        <canvas id="campusHeatmapChart"></canvas>
                     </div>
                 </div>
-            ` 
-        },
+            </div>
+
+            <div class="module-card">
+                <h3 style="color: white; margin-bottom: 20px;"><i class="fa-solid fa-trophy" style="color: #fbbf24;"></i> Performance Leadership</h3>
+                <div id="leaderboard-area">
+                    <p style="color: rgba(255,255,255,0.6);">Loading leaderboard statistics...</p>
+                </div>
+            </div>
+        ` 
+    },
+    // ↑↑↑ END OF CLEAN CONFIGURATION ARRAY OBJECT ↑↑↑
         { 
             id: 'agent-logs', icon: 'fa-server', name: 'Agent Activity Logs', 
             content: `
@@ -609,7 +684,7 @@
             content: `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h3 style="color: white; margin: 0;">System Users & Reports</h3>
-                <button onclick="window.location.href='http://127.0.0.1:5005/api/export/tickets'" style="background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold;"><i class="fa-solid fa-file-excel"></i> Export All Tickets</button>
+                <button onclick="window.location.href='/api/export/tickets'" style="background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold;"><i class="fa-solid fa-file-excel"></i> Export All Tickets</button>
             </div>
             <div style="display:flex; gap:10px; margin-bottom:20px;">
                     <div class="input-group" style="flex:2; margin-bottom:0;">
@@ -632,8 +707,9 @@
         id: 'inventory-control', icon: 'fa-boxes-stacked', name: 'Digital Stockroom', 
         content: `
             <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-                <button type="button" class="primary-btn inv-tab-btn" id="inv-tab-requests" onclick="renderInventoryUI('requests')" style="background: #38bdf8; width: 50%;">Pending Requests</button>
-                <button type="button" class="primary-btn inv-tab-btn" id="inv-tab-stock" onclick="renderInventoryUI('stock')" style="background: rgba(255,255,255,0.1); width: 50%;">Live Inventory</button>
+                <button type="button" class="primary-btn inv-tab-btn" id="inv-tab-requests" onclick="renderInventoryUI('requests')" style="background: rgba(255,255,255,0.1); width: 33%;">Pending Requests</button>
+                <button type="button" class="primary-btn inv-tab-btn" id="inv-tab-stock" onclick="renderInventoryUI('stock')" style="background: #38bdf8; width: 33%;">Live Inventory</button>
+                <button type="button" class="primary-btn inv-tab-btn" id="inv-tab-pos" onclick="renderDraftPOs()" style="background: rgba(255,255,255,0.1); width: 33%;"><i class="fa-solid fa-file-invoice-dollar"></i> AI Purchase Drafts</button>
             </div>
             <div id="inventory-dynamic-area"><p style="color:white;"><i class="fa-solid fa-spinner fa-spin"></i> Connecting to Stockroom...</p></div>
         ` 
@@ -645,7 +721,8 @@
                 <h3 style="color: white; margin: 0;"><i class="fa-solid fa-chart-pie"></i> Campus Performance Analytics</h3>
                 <button onclick="loadAnalytics()" class="primary-btn" style="background: rgba(56,189,248,0.2); color: #38bdf8; border: 1px solid #38bdf8; width: auto; padding: 8px 15px;"><i class="fa-solid fa-arrows-rotate"></i> Refresh Data</button>
             </div>
-            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+            
+            <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
                 <div style="flex: 1; min-width: 300px; background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
                     <h4 style="color: #a1a1aa; text-align: center; margin-bottom: 15px;">Workload by Department</h4>
                     <canvas id="deptChart"></canvas>
@@ -653,6 +730,13 @@
                 <div style="flex: 1; min-width: 300px; background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
                     <h4 style="color: #a1a1aa; text-align: center; margin-bottom: 15px;">Live Ticket Status Distribution</h4>
                     <canvas id="statusChart"></canvas>
+                </div>
+            </div>
+
+            <div style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                <h4 style="color: #a1a1aa; margin-bottom: 15px;"><i class="fa-solid fa-indian-rupee-sign"></i> Departmental Inventory Budget vs. Spend (Current Quarter)</h4>
+                <div style="height: 300px; width: 100%;">
+                    <canvas id="budgetChart"></canvas>
                 </div>
             </div>
         `
@@ -665,21 +749,26 @@ const technicianModules = [
         { 
             id: 'my-tasks', icon: 'fa-clipboard-list', name: 'My Task Queue', 
             content: `
-                <div class="input-group" style="margin-bottom: 20px;">
-                    <i class="fa-solid fa-magnifying-glass input-icon" style="color: rgba(255,255,255,0.6);"></i>
-                    <input type="text" id="ticket-search-bar" placeholder="Filter tasks..." onkeyup="filterTickets()" style="background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; padding-left: 45px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div class="input-group" style="margin-bottom: 0; width: 300px;">
+                        <i class="fa-solid fa-magnifying-glass input-icon" style="color: rgba(255,255,255,0.6);"></i>
+                        <input type="text" id="ticket-search-bar" placeholder="Filter tasks..." onkeyup="filterTickets()" style="background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; padding-left: 45px;">
+                    </div>
+                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 4px;">
+                        <button onclick="window.taskViewMode = 'list'; renderTechTickets('All')" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1);"><i class="fa-solid fa-list"></i> List</button>
+                        <button onclick="window.taskViewMode = 'kanban'; renderTechTickets('All')" class="primary-btn" style="width: auto; padding: 8px 15px; background: #38bdf8;"><i class="fa-solid fa-columns"></i> Kanban</button>
+                    </div>
                 </div>
-                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-                    <button type="button" class="primary-btn tech-tab-btn" id="tech-tab-Pending" onclick="renderTechTickets('Pending')" style="background: #38bdf8; width: 33%;">New / Assigned</button>
-                    <button type="button" class="primary-btn tech-tab-btn" id="tech-tab-Active" onclick="renderTechTickets('Active')" style="background: rgba(255,255,255,0.1); width: 33%;">In Progress</button>
-                    <button type="button" class="primary-btn tech-tab-btn" id="tech-tab-Completed" onclick="renderTechTickets('Completed')" style="background: rgba(255,255,255,0.1); width: 33%;">Completed</button>
-                </div>
-                <div id="module-dynamic-area" class="ticket-list-wrapper"><p style="color:white;">Fetching Live Database Records...</p></div>
+                <div id="module-dynamic-area"><p style="color:white;">Fetching Agile Board...</p></div>
             ` 
         },
         { 
             id: 'profile', icon: 'fa-id-badge', name: 'Status & Skills', 
-            content: `<div id="module-dynamic-area"><p style="color:white;">Fetching your live status...</p></div>` 
+            content: `<div id="module-dynamic-area"><p style="color:white;">Fetching your live HR dashboard...</p></div>` 
+        },
+        { 
+            id: 'safety-ops', icon: 'fa-shield-halved', name: 'Safety & Field Ops', 
+            content: `<div id="module-dynamic-area"><p style="color:white;"><i class="fa-solid fa-spinner fa-spin"></i> Loading Safety Command...</p></div>` 
         }
     ];
 
@@ -798,7 +887,7 @@ const technicianModules = [
     async function fetchNotifications() {
         if (!loggedInRole || !loggedInName) return;
         try {
-            const res = await fetch(`http://127.0.0.1:5005/api/notifications?role=${encodeURIComponent(loggedInRole)}&name=${encodeURIComponent(loggedInName)}`);
+            const res = await fetch(`/api/notifications?role=${encodeURIComponent(loggedInRole)}&name=${encodeURIComponent(loggedInName)}`);
             const data = await res.json();
             if (data.status === 'success') {
                 const notifs = data.data;
@@ -834,7 +923,7 @@ const technicianModules = [
         if(badge) badge.classList.add('hidden');
         if(list) list.innerHTML = '<p style="color:rgba(255,255,255,0.6); font-size:0.85rem;">No system notifications</p>';
         try {
-            await fetch('http://127.0.0.1:5005/api/notifications/read', { 
+            await fetch('/api/notifications/read', { 
                 method: 'POST', 
                 headers: { 'Content-Type': 'application/json' }, 
                 body: JSON.stringify({ role: loggedInRole, name: loggedInName }) 
@@ -956,7 +1045,7 @@ const technicianModules = [
 
         fetchNotifications();
         if (moduleObj.id === 'ai-feed') {
-            fetch('http://127.0.0.1:5005/api/leaderboard')
+            fetch('/api/leaderboard')
                 .then(res => res.json())
                 .then(data => {
                     const lbArea = document.getElementById('leaderboard-area');
@@ -983,7 +1072,7 @@ const technicianModules = [
             try {
                 const safeRole = encodeURIComponent(loggedInRole);
                 const safeName = encodeURIComponent(sessionStorage.getItem('hub_name') || '');
-                const res = await fetch(`http://127.0.0.1:5005/api/tickets?role=${safeRole}&name=${safeName}&t=${Date.now()}`);
+                const res = await fetch(`/api/tickets?role=${safeRole}&name=${safeName}&t=${Date.now()}`);
                 const data = await res.json();
                 if (data.status === 'success') { 
                     globalTicketsData = data.data; 
@@ -997,63 +1086,232 @@ const technicianModules = [
             if (targetArea) {
                 targetArea.innerHTML = `<p style="color:white;"><i class="fa-solid fa-spinner fa-spin"></i> Loading live profile data...</p>`;
                 try {
-                    const res = await fetch('http://127.0.0.1:5005/api/technicians?t=' + Date.now());
-                    const data = await res.json();
+                    const techName = sessionStorage.getItem('hub_name');
+                    
+                    // Fetch profile, leaves, trades, and PERFORMANCE simultaneously!
+                    const [resProfile, resLeaves, resTrades, resPerf] = await Promise.all([
+                        fetch('/api/technicians?t=' + Date.now()),
+                        fetch(`/api/technicians/leave-requests?name=${encodeURIComponent(techName)}`),
+                        fetch(`/api/technicians/shift-trades?department=${encodeURIComponent(sessionStorage.getItem('hub_dept') || 'All')}`),
+                        fetch(`/api/technicians/performance?name=${encodeURIComponent(techName)}`) // NEW API CALL!
+                    ]);
+                    
+                    const data = await resProfile.json();
+                    const leavesData = await resLeaves.json();
+                    const tradesData = await resTrades.json();
+                    const perfData = await resPerf.json(); // Data for Radar & Feedback
+
                     if (data.status === 'success') {
-                        const myProfile = data.data.find(t => t.name === sessionStorage.getItem('hub_name'));
-                        const activeHours = myProfile ? myProfile.current_active_hours : 0; 
-                        const maxHours = myProfile ? myProfile.max_shift_hours : 8; 
+                        const myProfile = data.data.find(t => t.name === techName);
+                        const activeMins = myProfile ? myProfile.current_active_hours : 0; 
+                        const maxMins = myProfile ? myProfile.max_shift_hours * 60 : 480; 
                         const dept = myProfile ? myProfile.department : 'Pending Assignment';
                         
-                        // NEW SHIFT LOGIC
                         const isOnShift = myProfile && myProfile.is_on_shift === 1;
-                        const shiftColor = isOnShift ? '#10b981' : '#fca5a5';
-                        const shiftBg = isOnShift ? 'rgba(16, 185, 129, 0.2)' : 'rgba(252, 165, 165, 0.2)';
-                        const shiftText = isOnShift ? 'Available Today' : 'Currently Off Duty';
-                        const shiftIcon = isOnShift ? 'fa-clipboard-user' : 'fa-bed';
-                        const btnText = isOnShift ? '<i class="fa-solid fa-power-off"></i> Clock Out' : '<i class="fa-solid fa-power-off"></i> Clock In';
-                        const btnColor = isOnShift ? 'rgba(248, 113, 113, 0.2)' : 'rgba(16, 185, 129, 0.2)';
-                        const btnTextColor = isOnShift ? '#fca5a5' : '#10b981';
+                        const isOnBreak = myProfile && myProfile.on_break === 1;
+                        const isOvertime = myProfile && myProfile.overtime_opt_in === 1;
+
+                        const shiftColor = isOnShift ? (isOnBreak ? '#fbbf24' : '#10b981') : '#fca5a5';
+                        const shiftText = isOnShift ? (isOnBreak ? 'ON BREAK (Paused)' : 'Available Today') : 'Currently Off Duty';
+                        const shiftIcon = isOnBreak ? 'fa-mug-hot' : (isOnShift ? 'fa-clipboard-user' : 'fa-bed');
 
                         targetArea.innerHTML = `
-                            <div class="stats-grid" style="grid-template-columns: repeat(2, 1fr);">
-                                <div class="stat-card" style="border-left: 4px solid ${shiftColor};">
-                                    <div class="stat-icon" style="background: ${shiftBg}; color: ${shiftColor};"><i class="fa-solid ${shiftIcon}"></i></div>
-                                    <div class="stat-info"><h4>Current Status</h4><h2 style="color: ${shiftColor};">${shiftText}</h2></div>
+                            <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
+                                <div class="module-card" style="flex: 1; min-width: 300px; border-left: 4px solid ${shiftColor};">
+                                    <h4 style="color:white; margin-bottom:10px;">Current Status</h4>
+                                    <p style="color: ${shiftColor}; font-size: 1.5rem; font-weight: bold; margin-bottom: 20px;"><i class="fa-solid ${shiftIcon}"></i> ${shiftText}</p>
+                                    <div style="display: flex; gap: 10px;">
+                                        <button class="primary-btn" onclick="toggleMyShift()" style="flex: 1; background: ${isOnShift ? '#ef4444' : '#10b981'};">
+                                            ${isOnShift ? 'Clock Out' : 'Clock In'}
+                                        </button>
+                                        ${isOnShift ? `
+                                            <button class="primary-btn" onclick="window.toggleBreak()" style="flex: 1; background: ${isOnBreak ? '#38bdf8' : '#fbbf24'}; color: #000;">
+                                                <i class="fa-solid fa-mug-hot"></i> ${isOnBreak ? 'End Break' : 'Take 15m Break'}
+                                            </button>
+                                        ` : ''}
+                                    </div>
                                 </div>
-                                <div class="stat-card" style="border-left: 4px solid #38bdf8;">
-                                    <div class="stat-icon bg-blue"><i class="fa-solid fa-stopwatch"></i></div>
-                                    <div class="stat-info"><h4>Shift Workload</h4><h2>${activeHours} / ${maxHours} Hours</h2></div>
-                                </div>
-                            </div>
-                            <div class="module-card" style="display: flex; justify-content: space-between; align-items: center;">
-                                <div>
-                                    <h4 style="color:white; margin-bottom:10px;">Registered Name</h4>
-                                    <p style="color: #38bdf8; font-size: 1.2rem; font-weight: bold; margin-bottom: 20px;">${sessionStorage.getItem('hub_name')}</p>
-                                    <h4 style="color:white; margin-bottom:10px;">Active Skills / Department</h4>
-                                    <span class="badge badge-progress" style="background: rgba(255,255,255,0.2); color: white;">${dept}</span>
-                                </div>
-                                <div>
-                                    <button type="button" class="primary-btn" onclick="toggleMyShift()" style="background: ${btnColor}; color: ${btnTextColor}; border: 1px solid ${btnTextColor}; padding: 15px 30px; font-size: 1.1rem;">
-                                        ${btnText}
+                                <div class="module-card" style="flex: 1; min-width: 300px;">
+                                    <div style="display: flex; justify-content: space-between;">
+                                        <h4 style="color:white; margin-bottom:10px;">Shift Workload</h4>
+                                        <button onclick="window.toggleOvertime()" style="background: ${isOvertime ? '#10b981' : 'rgba(255,255,255,0.1)'}; color: white; border: none; padding: 4px 10px; border-radius: 12px; cursor: pointer; font-size: 0.8rem;">
+                                            Overtime Opt-In: ${isOvertime ? 'ON' : 'OFF'}
+                                        </button>
+                                    </div>
+                                    <p style="color: #38bdf8; font-size: 1.5rem; font-weight: bold; margin-bottom: 20px;">${activeMins} / ${maxMins} Mins</p>
+                                    <button class="primary-btn" onclick="window.location.href='/api/technicians/timesheet/${encodeURIComponent(techName)}'" style="background: rgba(56,189,248,0.2); border: 1px solid #38bdf8; color: #38bdf8;">
+                                        <i class="fa-solid fa-file-pdf"></i> Export Monthly Timesheet
                                     </button>
                                 </div>
                             </div>
+
+                            <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
+                                <div class="module-card" style="flex: 1; min-width: 300px;">
+                                    <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                                        <h3 style="color: white;"><i class="fa-solid fa-calendar-day"></i> Shift Trade Board</h3>
+                                        <button onclick="window.postShiftTrade('${dept}')" class="primary-btn" style="width: auto; padding: 5px 10px; font-size: 0.8rem;"><i class="fa-solid fa-plus"></i> Post Trade</button>
+                                    </div>
+                                    <div style="max-height: 150px; overflow-y: auto;">
+                                        ${tradesData.data && tradesData.data.length > 0 ? tradesData.data.map(t => `
+                                            <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin-bottom: 8px; font-size: 0.85rem; color: white;">
+                                                <strong style="color: #a855f7;">${t.requester}</strong> needs coverage on <strong>${t.target_date}</strong>.
+                                                <button style="float: right; background: #10b981; color: white; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer;">Accept</button>
+                                            </div>
+                                        `).join('') : '<p style="color: #cbd5e1; font-size: 0.85rem;">No open shift trades in your department.</p>'}
+                                    </div>
+                                </div>
+                                <div class="module-card" style="flex: 1; min-width: 300px;">
+                                    <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                                        <h3 style="color: white;"><i class="fa-solid fa-plane-departure"></i> My Leave Requests</h3>
+                                        <button onclick="window.requestLeave()" class="primary-btn" style="width: auto; padding: 5px 10px; font-size: 0.8rem; background: #e08e45;"><i class="fa-solid fa-plus"></i> Request Time Off</button>
+                                    </div>
+                                    <div style="max-height: 150px; overflow-y: auto;">
+                                        ${leavesData.data && leavesData.data.length > 0 ? leavesData.data.map(l => `
+                                            <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin-bottom: 8px; font-size: 0.85rem; color: white; border-left: 3px solid ${l.status === 'Pending' ? '#fbbf24' : '#10b981'};">
+                                                ${l.start_date} to ${l.end_date} <span style="float: right; color: ${l.status === 'Pending' ? '#fbbf24' : '#10b981'};">${l.status}</span><br>
+                                                <small style="color: rgba(255,255,255,0.6);">${l.reason}</small>
+                                            </div>
+                                        `).join('') : '<p style="color: #cbd5e1; font-size: 0.85rem;">No leave history.</p>'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                                <div class="module-card" style="flex: 1; min-width: 300px;">
+                                    <h3 style="color: white; margin-bottom: 15px;"><i class="fa-solid fa-radar"></i> Performance Matrix</h3>
+                                    <div style="height: 250px; width: 100%; display: flex; justify-content: center;">
+                                        <canvas id="techRadarChart"></canvas>
+                                    </div>
+                                </div>
+                                
+                                <div class="module-card" style="flex: 1; min-width: 300px;">
+                                    <h3 style="color: white; margin-bottom: 15px;"><i class="fa-solid fa-award" style="color: #fbbf24;"></i> Achievement Case</h3>
+                                    <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                                        ${perfData.badges.map(b => `
+                                            <div style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.4); border-radius: 12px; padding: 15px; text-align: center; flex: 1; min-width: 100px;">
+                                                <i class="fa-solid fa-medal" style="color: #fbbf24; font-size: 2rem; margin-bottom: 10px;"></i>
+                                                <h4 style="color: #fbbf24; font-size: 0.85rem;">${b}</h4>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                                
+                                <div class="module-card" style="flex: 1; min-width: 300px;">
+                                    <h3 style="color: white; margin-bottom: 15px;"><i class="fa-solid fa-comments"></i> Live Feedback Stream</h3>
+                                    <div style="max-height: 250px; overflow-y: auto; padding-right: 5px;">
+                                        ${perfData.feedbacks.map(f => `
+                                            <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin-bottom: 10px; border-left: 3px solid #10b981;">
+                                                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                                                    <strong style="color: white; font-size: 0.9rem;">${f.user_name}</strong>
+                                                    <span style="color: #fbbf24; font-size: 0.8rem;">${'★'.repeat(f.user_rating)}${'☆'.repeat(5 - f.user_rating)}</span>
+                                                </div>
+                                                <p style="color: #cbd5e1; font-size: 0.85rem; font-style: italic;">"${f.user_feedback}"</p>
+                                                <small style="color: rgba(255,255,255,0.4); font-size: 0.7rem;">Ticket: ${f.ticket_id}</small>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            </div>
                         `;
+
+                        // Render the Chart.js Radar Chart
+                        setTimeout(() => {
+                            const ctx = document.getElementById('techRadarChart');
+                            if (ctx) {
+                                new Chart(ctx, {
+                                    type: 'radar',
+                                    data: {
+                                        labels: ['SLA Speed', 'Quality', 'Safety', 'Communication', 'Efficiency'],
+                                        datasets: [{
+                                            label: 'My Score',
+                                            data: perfData.radar,
+                                            backgroundColor: 'rgba(56, 189, 248, 0.4)',
+                                            borderColor: '#38bdf8',
+                                            pointBackgroundColor: '#fbbf24',
+                                            borderWidth: 2
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true, maintainAspectRatio: false,
+                                        scales: {
+                                            r: {
+                                                angleLines: { color: 'rgba(255,255,255,0.1)' },
+                                                grid: { color: 'rgba(255,255,255,0.1)' },
+                                                pointLabels: { color: '#cbd5e1', font: { size: 11 } },
+                                                ticks: { display: false, min: 0, max: 100 }
+                                            }
+                                        },
+                                        plugins: { legend: { display: false } }
+                                    }
+                                });
+                            }
+                        }, 100);
                     }
-                } catch (e) { targetArea.innerHTML = `<p style="color:#fca5a5;">Failed to load live profile.</p>`; }
+                } catch (e) { targetArea.innerHTML = `<p style="color:#fca5a5;">Failed to load HR module.</p>`; }
+            }
+        }
+        else if (moduleObj.id === 'safety-ops') {
+            if (targetArea) {
+                const techName = sessionStorage.getItem('hub_name');
+                const currBldg = sessionStorage.getItem('hub_bldg') || 'Main Building';
+                
+                targetArea.innerHTML = `
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
+                        
+                        <div class="module-card" style="flex: 1; min-width: 300px; border-top: 4px solid #38bdf8;">
+                            <h3 style="color: white; margin-bottom: 15px;"><i class="fa-solid fa-location-crosshairs"></i> Live GPS Geo-Fencing</h3>
+                            <p style="color: #cbd5e1; font-size: 0.9rem; margin-bottom: 20px;">Share your location. The AI Dispatcher will route <strong>your department's</strong> tickets to you if you are the closest available technician.</p>
+                            
+                            <div class="input-group" style="margin-bottom: 15px;">
+                                <select id="geo-building-select" style="padding-left: 15px; background: rgba(0,0,0,0.2); color: white; border: 1px solid #38bdf8;" onchange="updateGPSLocation()">
+                                    <option value="Building A" ${currBldg === 'Building A' ? 'selected' : ''}>Building A</option>
+                                    <option value="Building B" ${currBldg === 'Building B' ? 'selected' : ''}>Building B</option>
+                                    <option value="Building C" ${currBldg === 'Building C' ? 'selected' : ''}>Building C</option>
+                                    <option value="Building D1" ${currBldg === 'Building D1' ? 'selected' : ''}>Building D1</option>
+                                    <option value="Library Building" ${currBldg === 'Library Building' ? 'selected' : ''}>Library Building</option>
+                                    <option value="Main Building" ${currBldg === 'Main Building' ? 'selected' : ''}>Main Building</option>
+                                </select>
+                            </div>
+                            <div style="background: rgba(16, 185, 129, 0.1); color: #10b981; padding: 10px; border-radius: 8px; border: 1px solid #10b981; font-size: 0.85rem; font-weight: bold; text-align: center;">
+                                <i class="fa-solid fa-satellite-dish fa-beat"></i> GPS Signal Locked
+                            </div>
+                        </div>
+
+                        <div class="module-card" style="flex: 1; min-width: 300px; border-top: 4px solid #a855f7;">
+                            <h3 style="color: white; margin-bottom: 15px;"><i class="fa-solid fa-camera"></i> Snap & Report Hazard</h3>
+                            <p style="color: #cbd5e1; font-size: 0.9rem; margin-bottom: 20px;">Spotted an issue outside your queue? Enter 3 words and snap a pic. AI will auto-format and route it to the correct department.</p>
+                            
+                            <input type="text" id="hazard-desc" placeholder="e.g., Broken glass hallway" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.2); color: white; margin-bottom: 10px;">
+                            <input type="file" accept="image/*" style="width: 100%; padding: 10px; border-radius: 8px; background: rgba(255,255,255,0.9); margin-bottom: 15px;">
+                            
+                            <button onclick="submitHazardReport()" class="primary-btn" style="background: #a855f7;"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Auto-Report</button>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                        <div class="module-card" style="flex: 1; min-width: 300px; border-top: 4px solid #ef4444; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding-top: 40px; padding-bottom: 40px;">
+                            <h3 style="color: white; margin-bottom: 10px;"><i class="fa-solid fa-truck-medical"></i> Emergency Override</h3>
+                            <p style="color: #fca5a5; font-size: 0.85rem; margin-bottom: 25px;">Triggers immediate base-wide alert and bypasses AI triage.</p>
+                            
+                            <button onclick="triggerSOS()" style="width: 150px; height: 150px; border-radius: 50%; background: radial-gradient(circle, #ef4444 0%, #991b1b 100%); border: 8px solid rgba(239, 68, 68, 0.3); color: white; font-size: 2.5rem; font-weight: bold; cursor: pointer; box-shadow: 0 0 30px rgba(239, 68, 68, 0.6); transition: all 0.2s;" onmousedown="this.style.transform='scale(0.95)'" onmouseup="this.style.transform='scale(1)'">
+                                SOS
+                            </button>
+                        </div>
+                    </div>
+                
+                `;
             }
         }
         else if (moduleObj.id === 'roster') {
             try {
-                const res = await fetch('http://127.0.0.1:5005/api/technicians?t=' + Date.now());
+                const res = await fetch('/api/technicians?t=' + Date.now());
                 const data = await res.json();
                 if (data.status === 'success') { globalTechs = data.data; renderTechs(); }
             } catch (e) { if(targetArea) targetArea.innerHTML = "Error loading roster."; }
         }
         else if (moduleObj.id === 'user-directory') {
             try {
-                const res = await fetch('http://127.0.0.1:5005/api/users');
+                const res = await fetch('http://127.0.0.1:/api/users');
                 const data = await res.json();
                 if (data.status === 'success') { globalUsersData = data.data; renderUsers(); }
             } catch (e) { if(targetArea) targetArea.innerHTML = "<p style='color:#fca5a5;'>Error loading users.</p>"; }
@@ -1061,92 +1319,165 @@ const technicianModules = [
     }
 
     // Ticket Renderers (Admin, Tech, User)
-    function renderTechTickets(filterType) {
-        document.querySelectorAll('.tech-tab-btn').forEach(btn => btn.style.background = 'rgba(255,255,255,0.1)');
-        const activeTab = document.getElementById(`tech-tab-${filterType}`);
-        if(activeTab) activeTab.style.background = '#38bdf8';
+    
+    // ↓↓↓ BATCH 7: KANBAN, AI, & SWIPE LOGIC ↓↓↓
+    window.taskViewMode = 'kanban'; // Default to Kanban
 
-        let filteredData = globalTicketsData.filter(t => {
-            if(filterType === 'Pending') return ['Pending', 'Assigned', 'Decline Requested'].includes(t.status);
-            if(filterType === 'Active') return ['In Progress', 'Escalated', 'Awaiting Parts'].includes(t.status);
-            if(filterType === 'Completed') return t.status === 'Resolved';
-            return false;
-        });
-
+    window.renderTechTickets = function(filterType) {
         let html = '';
-        if (filteredData.length === 0) { html = `<div class="ticket-card"><p style="color:white;">No ${filterType} tasks found.</p></div>`; } 
-        else {
-            filteredData.forEach(t => {
-                let urgencyColor = '#10b981', urgencyBg = 'rgba(16, 185, 129, 0.2)', pulseClass = '';
-                let priorityLabel = t.priority || 'Medium';
-                let priorityIcon = 'fa-bolt';
-                
-                if (t.priority === 'Urgent') { urgencyColor = '#fca5a5'; urgencyBg = 'rgba(254, 226, 226, 0.2)'; pulseClass = 'pulse-urgent'; } 
-                else if (t.priority === 'High') { urgencyColor = '#fbbf24'; urgencyBg = 'rgba(251, 191, 36, 0.2)'; }
-                else if (t.ticket_id.startsWith('PM-')) { urgencyColor = '#a855f7'; urgencyBg = 'rgba(168, 85, 247, 0.2)'; priorityLabel = 'Preventive'; priorityIcon = 'fa-calendar-check'; }
+        
+        // 1. KANBAN VIEW RENDERER
+        if (window.taskViewMode === 'kanban') {
+            html += `<div class="kanban-board">`;
+            const columns = [
+                { name: 'Pending', status: ['Pending', 'Decline Requested'], color: '#f59e0b' },
+                { name: 'In Progress', status: ['Assigned', 'In Progress', 'Awaiting Parts'], color: '#38bdf8' },
+                { name: 'Completed', status: ['Resolved'], color: '#10b981' }
+            ];
 
+            columns.forEach(col => {
                 html += `
-                    <div class="ticket-card ${pulseClass}" style="border-left: 4px solid ${urgencyColor}; position: relative;">
-                        <div class="ticket-header">
-                            <span class="ticket-id">${t.ticket_id}</span>
-                            <div>
-                                <span class="badge" style="background: ${urgencyBg}; color: ${urgencyColor}; margin-right: 5px;"><i class="fa-solid ${priorityIcon}"></i> ${priorityLabel}</span>
-                                <span class="badge badge-progress" style="background: rgba(255,255,255,0.2); color: white;">${t.status}</span>
-                            </div>
+                    <div class="kanban-column" ondrop="drop(event, '${col.status[0]}')" ondragover="allowDrop(event)">
+                        <div class="kanban-header">
+                            <strong><i class="fa-solid fa-circle" style="color:${col.color}; font-size:0.6rem;"></i> ${col.name}</strong>
+                            <span class="badge" style="background:rgba(255,255,255,0.1);">${globalTicketsData.filter(t => col.status.includes(t.status)).length}</span>
                         </div>
-                        <h3 class="ticket-title">${safeText(t.issue)}</h3>
-                        <p class="ticket-meta"><i class="fa-solid fa-user"></i> ${t.user_name} &nbsp;|&nbsp; <i class="fa-solid fa-location-dot"></i> ${t.building} (${t.location}) &nbsp;|&nbsp; <i class="fa-regular fa-clock"></i> ${timeAgo(t.created_at)}</p>
                 `;
 
-                if (t.status === 'Pending' || t.status === 'Assigned') {
+                globalTicketsData.filter(t => col.status.includes(t.status)).forEach(t => {
+                    // SLA Math (48 Hours = 2880 mins)
+                    let createdDate = new Date(t.created_at.replace(' ', 'T') + "Z");
+                    let elapsedMins = (Date.now() - createdDate) / 60000;
+                    let hrsLeft = Math.max(0, Math.floor(48 - (elapsedMins / 60)));
+                    let slaPercent = Math.min(100, (elapsedMins / 2880) * 100);
+                    let slaClass = slaPercent > 80 ? 'sla-warning' : '';
+                    let urgencyColor = t.priority === 'Urgent' ? '#ef4444' : (t.priority === 'High' ? '#fbbf24' : '#38bdf8');
+
                     html += `
-                        <div style="display:flex; gap:10px; margin-top:15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
-                            <button type="button" class="primary-btn" style="flex:2; background: #10b981; color: white;" onclick="acceptTicket('${t.ticket_id}', '${t.priority}')">Accept Task</button>
-                            <button type="button" class="primary-btn" style="flex:1; background: rgba(248, 113, 113, 0.2); color: #fca5a5;" onclick="openDeclineModal('${t.ticket_id}')">Decline</button>
-                        </div>
-                    `;
-                } else if (t.status === 'Decline Requested') {
-                    html += `
-                        <div style="margin-top: 15px; padding: 12px; background: rgba(251, 191, 36, 0.2); border-radius: 8px; color: #fbbf24; border: 1px solid #fbbf24;">
-                            <i class="fa-solid fa-clock"></i> Waiting for Admin to review your decline request.<br>
-                            <span style="color:white; font-size:0.85rem;">Reason: ${safeText(t.decline_reason)}</span>
-                        </div>
-                    `;
-                // ↓↓↓ PASTE THE NEW IN-PROGRESS BUTTONS EXACTLY HERE ↓↓↓
-                // ↓↓↓ REPLACED IN PROGRESS UI WITH TIMERS EXACTLY HERE ↓↓↓
-                } else if (t.status === 'Assigned') {
-                    html += `
-                        <div style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
-                            <button type="button" class="primary-btn" style="width: 100%; background: #10b981; color: white;" onclick="startTask('${t.ticket_id}')"><i class="fa-solid fa-play"></i> Start Job & Clock In</button>
-                        </div>
-                    `;
-                } else if (t.status === 'In Progress' || t.status === 'Awaiting Parts') {
-                    let partsBadge = t.status === 'Awaiting Parts' ? `<div style="margin-bottom: 10px; color: #fbbf24; font-size: 0.85rem; font-weight: bold;"><i class="fa-solid fa-pause"></i> Status: Paused (Awaiting Parts)</div>` : '';
-                    let timerBadge = t.started_at ? `<div class="live-timer" data-start="${t.started_at}" style="background: rgba(16,185,129,0.1); border: 1px solid #10b981; color: #10b981; padding: 6px 12px; border-radius: 6px; display: inline-block; font-weight: bold; margin-bottom: 15px; font-size: 0.9rem;"><i class="fa-solid fa-stopwatch fa-beat"></i> Calculating Time...</div><br>` : '';
-                    
-                    html += `
-                        <div style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
-                            ${partsBadge}
-                            ${timerBadge}
-                            <label style="color:white; font-size: 0.8rem; margin-bottom: 8px; display:block;"><i class="fa-solid fa-camera"></i> Attach proof of resolution (Required):</label>
-                            <input type="file" id="res-photo-${t.ticket_id}" accept="image/*" style="margin-bottom: 15px; width: 100%; color: white; font-size: 0.85rem;">
-                            
-                            <div style="display: flex; gap: 10px;">
-                                <button type="button" class="primary-btn" style="flex: 2; background: #38bdf8; color: white;" onclick="resolveTicket('${t.ticket_id}')"><i class="fa-solid fa-flag-checkered"></i> Stop Clock & Resolve</button>
-                                ${t.status === 'In Progress' ? `<button type="button" class="primary-btn" style="flex: 1; background: transparent; border: 1px solid #fbbf24; color: #fbbf24;" onclick="requestSparePart('${t.ticket_id}')"><i class="fa-solid fa-box"></i> Need Part</button>` : ''}
+                        <div class="kanban-card swipeable" draggable="true" ondragstart="drag(event, '${t.ticket_id}')" data-id="${t.ticket_id}" style="border-left-color: ${urgencyColor};">
+                            <div class="sla-ring ${slaClass}" style="--p:${slaPercent}%;" title="SLA Countdown">
+                                <div class="sla-ring-inner">${hrsLeft}h</div>
                             </div>
+                            
+                            <h4 style="color:white; width:75%; margin-bottom:8px;">${t.ticket_id}</h4>
+                            <p style="font-size:0.85rem; color:#cbd5e1; margin-bottom:15px;">${safeText(t.issue)}</p>
+                            
+                            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;">
+                                ${col.name === 'Pending' ? `<button onclick="runPreFlight('${t.ticket_id}', '${safeText(t.issue).replace(/'/g, "\\'")}', this)" class="primary-btn" style="padding:5px 8px; font-size:0.7rem; background:#a855f7; width:auto;"><i class="fa-solid fa-boxes"></i> Pre-Flight Check</button>` : ''}
+                                <button onclick="draftUpdate('${t.status}', '${safeText(t.issue).replace(/'/g, "\\'")}', '${t.user_name}', this)" class="primary-btn" style="padding:5px 8px; font-size:0.7rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Formal Update</button>                                <button onclick="summarizeThread('${safeText(t.issue).replace(/'/g, "\\'")}', this)" class="primary-btn" style="padding:5px 8px; font-size:0.7rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
+                            </div>
+                            <div id="ai-out-${t.ticket_id}" style="margin-top:12px; font-size:0.8rem; color:#10b981; font-weight:bold;"></div>
                         </div>
                     `;
-                }
-        // ↑↑↑ END OF REPLACED IN PROGRESS UI ↑↑↑
-        // ↑↑↑ END OF NEW IN-PROGRESS BUTTONS ↑↑↑
-                html += `</div>`;
+                });
+                html += `</div>`; // Close Column
+            });
+            html += `</div>`; // Close Board
+        } 
+        else {
+            // Keep the basic list fallback if needed
+            html = `<p style="color:white;">Switched to standard list view.</p>`;
+        }
+        
+        document.getElementById('module-dynamic-area').innerHTML = html;
+        setTimeout(attachSwipeHandlers, 200); // Attach mobile swipe logic
+    };
+
+    // DRAG AND DROP KANBAN ENGINE
+    window.allowDrop = function(ev) { ev.preventDefault(); };
+    window.drag = function(ev, id) { ev.dataTransfer.setData("text", id); };
+    window.drop = async function(ev, newStatus) {
+        ev.preventDefault();
+        let ticketId = ev.dataTransfer.getData("text");
+        
+        // Auto-assign if dropped into "In Progress" from Pending
+        if (newStatus === 'Assigned' || newStatus === 'In Progress') {
+            await fetch(`/api/tickets/${ticketId}/accept`, { 
+                method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tech_name: sessionStorage.getItem('hub_name')}) 
+            });
+        } else {
+            await fetch(`/api/tickets/${ticketId}/update-status`, { 
+                method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({status: newStatus}) 
             });
         }
-        const targetArea = document.getElementById('module-dynamic-area');
-        if (targetArea) targetArea.innerHTML = html;
-        if(document.getElementById('ticket-search-bar')) filterTickets();
-    }
+        // Force soft refresh of data
+        document.getElementById('module-dynamic-area').innerHTML = '<p style="color:white;"><i class="fa-solid fa-spinner fa-spin"></i> Syncing Board...</p>';
+        loadModule(technicianModules[0]); 
+    };
+
+    // MOBILE SWIPE GESTURES (Swipe Right = Accept, Left = Decline)
+    window.attachSwipeHandlers = function() {
+        document.querySelectorAll('.swipeable').forEach(card => {
+            let startX = 0;
+            card.ontouchstart = e => startX = e.changedTouches[0].screenX;
+            card.ontouchend = e => {
+                let endX = e.changedTouches[0].screenX;
+                if (endX - startX > 75) acceptTicket(card.dataset.id, 'Medium'); // Swipe Right
+                else if (startX - endX > 75) openDeclineModal(card.dataset.id);  // Swipe Left
+            };
+        });
+    };
+
+   // AI ASSISTANT FUNCTIONS
+    window.runPreFlight = async function(id, issue, btn) {
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking...';
+        try {
+            const res = await fetch('/api/ai/preflight', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({issue: issue}) });
+            if (!res.ok) throw new Error("Server error");
+            const data = await res.json();
+            if(data.status === 'success') {
+                document.getElementById(`ai-out-${id}`).innerText = data.analysis;
+                document.getElementById(`ai-out-${id}`).style.color = data.analysis.includes('OUT OF STOCK') ? '#fca5a5' : '#10b981';
+            }
+        } catch(e) {
+            alert("Network Error: Could not connect to AI.");
+        } finally {
+            btn.innerHTML = '<i class="fa-solid fa-boxes"></i> Pre-Flight Check';
+        }
+    };
+
+    window.summarizeThread = async function(issue, btn) {
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
+        try {
+            const res = await fetch('/api/ai/summarize', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({issue: issue}) });
+            if (!res.ok) throw new Error("Server error");
+            const data = await res.json();
+            if(data.status === 'success') alert("✨ AI Summary:\n\n" + data.summary);
+        } catch(e) {
+            alert("Network Error: Could not connect to AI.");
+        } finally {
+            btn.innerHTML = '<i class="fa-solid fa-sparkles"></i> TL;DR';
+        }
+    };
+
+    window.draftUpdate = async function(status, issue, userName, btn) {
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Drafting...';
+        
+        // Grab the logged-in technician's name
+        const techName = sessionStorage.getItem('hub_name') || 'Technician';
+        
+        try {
+            const res = await fetch('/api/ai/draft-update', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify({issue: issue, status: status, user_name: userName, tech_name: techName}) 
+            });
+            if (!res.ok) throw new Error("Server error");
+            const data = await res.json();
+            
+            if(data.status === 'success') {
+                // Generate a mock email address so the "To:" field isn't empty (e.g. dr.smith@campus.edu)
+                const toEmail = `${userName.replace(/\s+/g, '.').toLowerCase()}@campus.edu`;
+                
+                // Open user's default email client with TO, SUBJECT, and BODY filled out!
+                window.location.href = `mailto:${toEmail}?subject=Update on your Maintenance Request&body=${encodeURIComponent(data.draft)}`;
+            }
+        } catch(e) {
+            alert("Network Error: Could not connect to AI.");
+        } finally {
+            btn.innerHTML = '<i class="fa-solid fa-envelope"></i> Formal Update';
+        }
+    };
 
     function renderAdminTickets(filterType) {
         document.querySelectorAll('.tab-btn').forEach(btn => btn.style.background = 'rgba(255,255,255,0.1)');
@@ -1279,7 +1610,7 @@ const technicianModules = [
         }
         
         try {
-            const response = await fetch('http://127.0.0.1:5005/api/register', {
+            const response = await fetch('/api/register', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, 
                 body: JSON.stringify({ name, email, password, role: selectedRole, department: dept })
             });
@@ -1305,7 +1636,7 @@ const technicianModules = [
         if (!email || !password) return alert("Please enter both email and password.");
         
         try {
-            const response = await fetch('http://127.0.0.1:5005/api/login', {
+            const response = await fetch('/api/login', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, 
                 body: JSON.stringify({ email, password })
             });
@@ -1346,7 +1677,7 @@ const technicianModules = [
         }
 
         try {
-            const response = await fetch('http://127.0.0.1:5005/api/tickets', { 
+            const response = await fetch('/api/tickets', { 
                 method: 'POST', 
                 headers: { 'Content-Type': 'application/json' }, 
                 body: JSON.stringify({ 
@@ -1396,7 +1727,7 @@ const technicianModules = [
         document.getElementById('ai-tip-text').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Analyzing issue and generating DIY solution...';
         
         try {
-            const res = await fetch('http://127.0.0.1:5005/api/ai/quick-fix', {
+            const res = await fetch('/api/ai/quick-fix', {
                 method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({issue: issue})
             });
             const data = await res.json();
@@ -1416,7 +1747,7 @@ const technicianModules = [
             else renderUserTickets();
             
             try {
-                const response = await fetch(`http://127.0.0.1:5005/api/tickets/${ticketId}`, { method: 'DELETE' });
+                const response = await fetch(`/api/tickets/${ticketId}`, { method: 'DELETE' });
                 const data = await response.json();
                 
                 if (!response.ok || data.status !== 'success') {
@@ -1428,19 +1759,26 @@ const technicianModules = [
         }
     }
 
-    // Safely accept a request
-    async function acceptTicket(ticketId, priority) {
+    // ↓↓↓ UPDATED ACCEPT TICKET LOGIC ↓↓↓
+    window.acceptTicket = async function(ticketId, priority) {
         if (priority === 'Urgent') alert(`⚠️ SLA WARNING: URGENT ticket accepted.`);
         try {
-            const response = await fetch(`http://127.0.0.1:5005/api/tickets/${ticketId}/accept`, { method: 'PUT' });
+            const response = await fetch(`/api/tickets/${ticketId}/accept`, { 
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tech_name: sessionStorage.getItem('hub_name') }) // Send name to verify shift!
+            });
             const data = await response.json();
+            
             if (!response.ok || data.status !== 'success') {
-                alert(`❌ Server failed to update DB: (Did you delete your old campus_hub.db?) ${data.message || response.statusText}`);
+                // This triggers the red popup if they are off duty!
+                alert(`❌ ${data.message || response.statusText}`);
                 return;
             }
             loadModule(technicianModules[0]);
         } catch (e) { alert("❌ Network connection failed while accepting."); }
-    }
+    };
+    // ↑↑↑ END UPDATED ACCEPT TICKET LOGIC ↑↑↑
 
     async function resolveTicket(ticketId) {
         const fileInput = document.getElementById(`res-photo-${ticketId}`);
@@ -1449,7 +1787,7 @@ const technicianModules = [
         }
         if(confirm(`Mark ${ticketId} as fully Resolved?`)) {
             try {
-                const response = await fetch(`http://127.0.0.1:5005/api/tickets/${ticketId}/resolve`, { method: 'PUT' });
+                const response = await fetch(`/api/tickets/${ticketId}/resolve`, { method: 'PUT' });
                 const data = await response.json();
                 if (!response.ok || data.status !== 'success') return alert("❌ Failed to resolve.");
                 loadModule(technicianModules[0]);
@@ -1475,7 +1813,7 @@ const technicianModules = [
         if (!reason) return alert("⚠️ Please provide a detailed reason before submitting.");
 
         try {
-            const response = await fetch(`http://127.0.0.1:5005/api/tickets/${activeDeclineTicketId}/decline`, { 
+            const response = await fetch(`/api/tickets/${activeDeclineTicketId}/decline`, { 
                 method: 'PUT', 
                 headers: {'Content-Type': 'application/json'}, 
                 body: JSON.stringify({reason: reason}) 
@@ -1494,14 +1832,14 @@ const technicianModules = [
 
     async function approveDecline(ticketId) {
         if(confirm("Approve decline and trigger AI to reassign?")) { 
-            const response = await fetch(`http://127.0.0.1:5005/api/tickets/${ticketId}/approve_decline`, { method: 'PUT' }); 
+            const response = await fetch(`/api/tickets/${ticketId}/approve_decline`, { method: 'PUT' }); 
             if(response.ok) loadModule(adminModules[1]); 
         }
     }
 
     async function rejectDecline(ticketId) {
         if(confirm("Deny decline and force the technician to complete the task?")) { 
-            const response = await fetch(`http://127.0.0.1:5005/api/tickets/${ticketId}/reject_decline`, { method: 'PUT' }); 
+            const response = await fetch(`/api/tickets/${ticketId}/reject_decline`, { method: 'PUT' }); 
             if(response.ok) loadModule(adminModules[1]); 
         }
     }
@@ -1537,7 +1875,7 @@ const technicianModules = [
     async function viewTechTasks(techName) {
         showModal(`Task Dashboard: ${techName}`, `<p style="color:white;"><i class="fa-solid fa-spinner fa-spin"></i> Fetching live tasks for ${techName}...</p>`);
         try {
-            const response = await fetch(`http://127.0.0.1:5005/api/tickets?role=Portal%20Admin`);
+            const response = await fetch(`/api/tickets?role=Portal%20Admin`);
             const data = await response.json();
             
             if (data.status === 'success') {
@@ -1568,27 +1906,31 @@ const technicianModules = [
         } catch (error) { document.getElementById('modal-body').innerHTML = `<p style="color: #fca5a5;">Failed to connect to Python server.</p>`; }
     }
      // Toggle Shift Status
+   // ↓↓↓ UPDATED SHIFT TOGGLE SCRIPT ↓↓↓
     async function toggleMyShift() {
         try {
-            const response = await fetch('http://127.0.0.1:5005/api/technicians/toggle-shift', {
+            const response = await fetch('/api/technicians/toggle-shift', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: sessionStorage.getItem('hub_name') })
             });
             const data = await response.json();
+            
             if (data.status === 'success') {
                 loadModule(technicianModules[1]); // Reload the profile page to show the color change
             } else {
-                alert("❌ Failed to change shift status.");
+                // Now displays the EXACT error from Python (e.g., the Time Limit warning)
+                alert("⛔ Shift Access Denied: \n\n" + data.message);
             }
-        } catch (e) { alert("❌ Network Error."); }
+        } catch (e) { alert("❌ Network Error. Cannot reach shift server."); }
     }
+    // ↑↑↑ END UPDATED SHIFT SCRIPT ↑↑↑
     async function requestSparePart(ticketId) {
         const partName = prompt("What part or tool do you need from Inventory to complete this job?");
         if (!partName) return; // User clicked cancel
         
         try {
-            const response = await fetch(`http://127.0.0.1:5005/api/tickets/${ticketId}/request-part`, {
+            const response = await fetch(`/api/tickets/${ticketId}/request-part`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ part_name: partName, tech_name: sessionStorage.getItem('hub_name') })
@@ -1602,26 +1944,31 @@ const technicianModules = [
             }
         } catch (e) { alert("❌ Network Error: Is your python server running?"); }
     }
+    // ↓↓↓ BULLETPROOF INVENTORY LOGIC ↓↓↓
     let globalInventory = [];
     let globalPartRequests = [];
 
-    async function loadInventoryData() {
+    window.loadInventoryData = async function() {
         try {
-            const res = await fetch('http://127.0.0.1:5005/api/inventory?t=' + Date.now());
+            const res = await fetch('/api/inventory?t=' + Date.now());
             const data = await res.json();
             if (data.status === 'success') {
                 globalInventory = data.inventory;
                 globalPartRequests = data.requests;
             }
         } catch (e) { console.error("Failed to load inventory"); }
-    }
+    };
 
+    // ↓↓↓ UPGRADED INVENTORY UI FUNCTION ↓↓↓
     window.renderInventoryUI = async function(tab) {
         document.querySelectorAll('.inv-tab-btn').forEach(btn => btn.style.background = 'rgba(255,255,255,0.1)');
-        document.getElementById(`inv-tab-${tab}`).style.background = '#38bdf8';
-        const area = document.getElementById('inventory-dynamic-area');
+        const activeTabBtn = document.getElementById(`inv-tab-${tab}`);
+        if(activeTabBtn) activeTabBtn.style.background = '#38bdf8';
         
-        await loadInventoryData();
+        const area = document.getElementById('inventory-dynamic-area');
+        if(!area) return;
+        
+        await window.loadInventoryData();
         
         if (tab === 'requests') {
             const pending = globalPartRequests.filter(r => r.status === 'Pending');
@@ -1641,83 +1988,378 @@ const technicianModules = [
             `).join('');
             if(pending.length === 0) html = '<div class="ticket-card"><p style="color:white;">No pending part requests.</p></div>';
             area.innerHTML = html;
-        // ↓↓↓ REPLACED INVENTORY TABLE RENDERING EXACTLY HERE ↓↓↓
-        } else {
+            
+        } else if (tab === 'stock') {
+            // Feature 5: Calculate Total Capital Value
+            let totalValue = globalInventory.reduce((sum, item) => sum + (item.stock_level * item.unit_price), 0);
+            
             let html = `
-                <div style="background: rgba(255, 255, 255, 0.1); border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.2);">
-                    <table style="width: 100%; text-align: left; color: white; border-collapse: collapse;">
-                        <tr style="background: rgba(0,0,0,0.3); font-size: 0.9rem;">
-                            <th style="padding: 15px;">Item Name</th><th style="padding: 15px;">Category</th><th style="padding: 15px;">Stock Level</th><th style="padding: 15px;">Unit Price</th><th style="padding: 15px;">Procurement</th>
-                        </tr>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background: rgba(255,255,255,0.05); padding: 15px 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                    <div>
+                        <h4 style="color: #9ca3af; margin: 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Total Capital Asset Value</h4>
+                        <h2 id="total-capital-value" style="color: #10b981; margin: 5px 0 0 0; font-size: 1.8rem;">₹${totalValue.toLocaleString('en-IN')}</h2>
+                    </div>
+                    <button onclick="exportInventoryCSV()" class="primary-btn" style="width: auto; background: #e08e45; padding: 12px 20px;"><i class="fa-solid fa-file-csv"></i> Export CSV Report</button>
+                </div>
+                
+                <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+                    <div class="input-group" style="flex: 2; margin-bottom: 0;">
+                        <i class="fa-solid fa-magnifying-glass input-icon" style="color: rgba(255,255,255,0.6);"></i>
+                        <input type="text" id="stock-search" placeholder="Instant search by item name..." onkeyup="updateStockTable()" style="background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; padding-left: 45px;">
+                    </div>
+                    <select id="stock-category-filter" onchange="updateStockTable()" style="flex: 1; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; border-radius: 12px; padding: 0 15px; outline: none;">
+                        <option value="All" style="color:black;">All Categories</option>
+                        ${[...new Set(globalInventory.map(i => i.category))].map(c => `<option value="${c}" style="color:black;">${c}</option>`).join('')}
+                    </select>
+                </div>
+                
+                <div id="stock-table-container"></div>
             `;
-            html += globalInventory.map(i => {
-                let stockColor = i.stock_level <= i.reorder_threshold ? '#ef4444' : '#10b981';
-                let alertIcon = i.stock_level <= i.reorder_threshold ? '<i class="fa-solid fa-triangle-exclamation"></i> Low ' : '';
-                return `
-                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
-                    <td style="padding: 15px;"><strong>${safeText(i.item_name)}</strong></td>
-                    <td style="padding: 15px;">${safeText(i.category)}</td>
-                    <td style="padding: 15px; color: ${stockColor}; font-weight: bold;">${alertIcon}${i.stock_level} Units</td>
-                    
-                    <td style="padding: 15px;">₹${i.unit_price.toFixed(2)}</td>
-                    
-                    <td style="padding: 15px;">
-                        <button onclick="searchStockOnline('${safeText(i.item_name).replace(/'/g, "\\'")}')" style="background: #e08e45; border: none; color: white; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: bold; transition: 0.2s;">
-                            <i class="fa-solid fa-globe"></i> Search Market
-                        </button>
-                    </td>
-                </tr>
-            `}).join('');
-            html += `</table></div>`;
             area.innerHTML = html;
+            updateStockTable(); // Initial Render
         }
     };
-        // ↑↑↑ END OF REPLACED INVENTORY TABLE ↑↑↑
+
+    // ↓↓↓ STOCKROOM LOGIC FUNCTIONS ↓↓↓
+
+    // Feature 4 Engine: Live Filtering
+    // ↓↓↓ BATCH 2 JAVASCRIPT UPGRADES ↓↓↓
+
+    // Feature 2: Smart Unit of Measurement Mapper
+    function getSmartUnit(category) {
+        const cat = (category || "").toLowerCase();
+        if (cat.includes('oil') || cat.includes('paint') || cat.includes('liquid') || cat.includes('chemical')) return 'Liters';
+        if (cat.includes('pipe') || cat.includes('wire') || cat.includes('cable') || cat.includes('tape')) return 'Meters';
+        if (cat.includes('screw') || cat.includes('nail') || cat.includes('fastener')) return 'Boxes';
+        return 'Units';
+    }
+
+    // ↓↓↓ FEATURE 4, 8, & 10: UPGRADED LIVE TABLE WITH KITTING & EXPIRY ↓↓↓
+    window.updateStockTable = function() {
+        const query = document.getElementById('stock-search')?.value.toLowerCase() || '';
+        const category = document.getElementById('stock-category-filter')?.value || 'All';
+        const container = document.getElementById('stock-table-container');
+        if (!container) return;
+
+        let filtered = globalInventory.filter(i => {
+            return i.item_name.toLowerCase().includes(query) && (category === 'All' || i.category === category);
+        });
+
+        // Feature 8: Kit Checkout Button added to the top controls
+        let html = `
+            <div style="display: flex; gap: 10px; margin-bottom: 15px; justify-content: flex-end;">
+                <button onclick="checkoutSmartKit()" class="primary-btn" style="width: auto; background: #8b5cf6; padding: 10px 20px; font-size: 0.85rem;"><i class="fa-solid fa-layer-group"></i> Quick-Checkout Kit</button>
+            </div>
+            <div style="background: rgba(255, 255, 255, 0.1); border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.2);">
+                <table style="width: 100%; text-align: left; color: white; border-collapse: collapse;">
+                    <tr style="background: rgba(0,0,0,0.3); font-size: 0.9rem;">
+                        <th style="padding: 15px;">Item Name</th><th style="padding: 15px;">Category</th><th style="padding: 15px;">Status</th><th style="padding: 15px;">Unit Price</th><th style="padding: 15px;">Actions</th>
+                    </tr>
+        `;
+        
+        html += filtered.map(i => {
+            // Feature 2: Custom Units
+            let unitLabel = getSmartUnit(i.category);
+            
+            // Feature 3: Smart Visual Badging
+            let stockHtml = '';
+            if (i.stock_level === 0) stockHtml = `<span class="pulse-badge"><i class="fa-solid fa-triangle-exclamation"></i> CRITICAL EMPTY</span>`;
+            else if (i.stock_level <= i.reorder_threshold) stockHtml = `<span style="color: #fbbf24; font-weight: bold;"><i class="fa-solid fa-battery-quarter"></i> Low (${i.stock_level} ${unitLabel})</span>`;
+            else stockHtml = `<span style="color: #10b981; font-weight: bold;"><i class="fa-solid fa-circle-check"></i> ${i.stock_level} ${unitLabel}</span>`;
+            
+            // Feature 10: Environmental Shelf-Life Alerts (Flags Oils, Lubricants, Paints, Chemicals)
+            let expiryBadge = '';
+            let catCheck = (i.category || '').toLowerCase();
+            if (catCheck.includes('oil') || catCheck.includes('paint') || catCheck.includes('chemical')) {
+                expiryBadge = `<span style="border: 1px solid #f59e0b; color: #f59e0b; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: bold; text-transform: uppercase;"><i class="fa-solid fa-biohazard"></i> Check Expiry</span>`;
+            }
+
+            // Feature 1: Quick +/- Adjusters
+            let adjustControls = `
+                <div style="display:inline-flex; align-items:center; gap: 8px; margin-right: 15px; background: rgba(0,0,0,0.2); padding: 4px; border-radius: 6px;">
+                    <button onclick="quickAdjustStock('${safeText(i.item_name).replace(/'/g, "\\'")}', -1)" style="background: #ef4444; border:none; color:white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-weight: bold;">-</button>
+                    <span style="min-width: 20px; text-align:center;">${i.stock_level}</span>
+                    <button onclick="quickAdjustStock('${safeText(i.item_name).replace(/'/g, "\\'")}', 1)" style="background: #10b981; border:none; color:white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-weight: bold;">+</button>
+                </div>
+            `;
+
+            return `
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <td style="padding: 15px;">
+                    <strong>${safeText(i.item_name)}</strong> 
+                    <i class="fa-solid fa-chart-line" style="color: #a855f7; margin-left: 8px; cursor: pointer;" title="View Price History" onclick="viewPriceHistory('${safeText(i.item_name).replace(/'/g, "\\'")}')"></i>
+                    ${expiryBadge}
+                </td>
+                <td style="padding: 15px;">${safeText(i.category)}</td>
+                <td style="padding: 15px;">${stockHtml}</td>
+                <td style="padding: 15px;">₹${i.unit_price.toFixed(2)}</td>
+                <td style="padding: 15px; display: flex; align-items: center;">
+                    ${adjustControls}
+                    <button onclick="searchStockOnline('${safeText(i.item_name).replace(/'/g, "\\'")}')" style="background: #e08e45; border: none; color: white; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: bold;"><i class="fa-solid fa-globe"></i> Market</button>
+                    
+                    <button onclick="reportDiscrepancy('${safeText(i.item_name).replace(/'/g, "\\'")}')" style="background: transparent; border: 1px solid rgba(255,255,255,0.3); color: #cbd5e1; border-radius: 4px; padding: 5px 10px; font-size: 0.75rem; margin-left: 8px; cursor: pointer;" title="Report Missing/Damaged"><i class="fa-solid fa-clipboard-question"></i> Audit</button>
+                    
+                    ${i.stock_level === 0 ? `<button onclick="getAiAlternative('${safeText(i.item_name).replace(/'/g, "\\'")}', this)" style="background: rgba(168,85,247,0.2); border: 1px solid #a855f7; color: #c084fc; border-radius: 4px; padding: 5px 10px; font-size: 0.75rem; margin-left: 8px; cursor: pointer;"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Alt</button>` : ''}
+                </td>
+            </tr>
+        `}).join('');
+        html += `</table></div>`;
+        container.innerHTML = html;
+    };
+
+    // Feature 8: Kit Checkout Logic
+    window.checkoutSmartKit = async function() {
+        const kitType = prompt("Type the name of the kit to checkout:\\n1. AC Service Kit\\n2. Basic Plumbing Repair");
+        if (!kitType) return;
+
+        try {
+            const res = await fetch('/api/inventory/checkout-kit', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ kit_type: kitType })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                alert(`✅ ${data.message}`);
+                renderInventoryUI('stock'); // Instantly refresh the table to show deducted items
+            } else {
+                alert(`❌ Error: ${data.message}`);
+            }
+        } catch(e) { alert("Server error during kit checkout."); }
+    };
+    // ↑↑↑ END OF FEATURE 4, 8, & 10 ↑↑↑
+
+    // Feature 6 Engine: Discrepancy Logger
+    window.reportDiscrepancy = async function(itemName) {
+        const amount = prompt(`How many units of "${itemName}" are missing or damaged?`);
+        if (!amount || isNaN(amount) || amount <= 0) return;
+        const reason = prompt("Provide a mandatory reason for the audit log (e.g., 'Broken during install'):");
+        if (!reason) return alert("Audit requires a reason!");
+
+        try {
+            const res = await fetch('/api/inventory/audit', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ item_name: itemName, amount_lost: amount, reason: reason, tech_name: sessionStorage.getItem('hub_name') })
+            });
+            if (res.ok) {
+                alert("✅ Discrepancy permanently logged for administrative review.");
+                renderInventoryUI('stock'); // Refresh table
+            }
+        } catch(e) { alert("Server error logging audit."); }
+    };
+
+    // Feature 9: AI Procurement with Supplier Hover Cards
+    window.searchStockOnline = async function(partName) {
+        showModal(`AI Procurement Agent: ${partName}`, `<p style="color:white; font-size:1.1rem; padding: 20px; text-align: center;"><i class="fa-solid fa-satellite-dish fa-spin"></i> Scanning Indian suppliers and online markets...</p>`);
+        try {
+            const res = await fetch('/api/inventory/search-online', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({part_name: partName})
+            });
+            const data = await res.json();
+            
+            if(data.status === 'success' && data.suppliers && Array.isArray(data.suppliers)) {
+                let cleanPartName = partName.replace(/[()]/g, '').trim();
+
+                let suppliersHtml = data.suppliers.map(s => {
+                    let vendorName = safeText(s.vendor);
+                    let searchQuery = `buy ${cleanPartName} ${vendorName} India`;
+                    let finalUrl = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`;
+                    
+                    // Feature 9 Integration: Supplier Tooltip HTML
+                    let corporateEmail = `sales@${vendorName.toLowerCase().replace(/\s/g, '')}.in`;
+                    let tooltipCard = `
+                        <div class="tooltip-text">
+                            <strong style="color:#38bdf8; font-size:0.95rem; border-bottom:1px solid rgba(255,255,255,0.2); display:block; padding-bottom:5px; margin-bottom:5px;">${vendorName} Corporate</strong>
+                            <strong><i class="fa-solid fa-address-card" style="width:20px;"></i> Rep:</strong> Amit Patel<br>
+                            <strong><i class="fa-solid fa-envelope" style="width:20px;"></i> Email:</strong> ${corporateEmail}<br>
+                            <strong><i class="fa-brands fa-whatsapp" style="color:#10b981; width:20px;"></i> Chat:</strong> +91 98XXX XXXXX
+                        </div>
+                    `;
+
+                    return `
+                    <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; border-left: 4px solid #38bdf8; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border-right: 1px solid rgba(255,255,255,0.1); border-top: 1px solid rgba(255,255,255,0.1); border-bottom: 1px solid rgba(255,255,255,0.1);">
+                        <div>
+                            <span class="supplier-tooltip" style="color: white; font-size: 1.1rem; font-weight: bold;">
+                                ${vendorName} ${tooltipCard}
+                            </span><br>
+                            <span style="color: #10b981; font-weight: bold; font-size: 1.05rem;">${safeText(s.price)}</span> 
+                            <span style="color: #9ca3af; font-size: 0.85rem; margin-left: 8px;"><i class="fa-solid fa-truck-fast"></i> ${safeText(s.delivery)}</span>
+                        </div>
+                        <a href="${finalUrl}" target="_blank" class="primary-btn" style="width: auto; padding: 10px 15px; background: #e08e45; text-decoration: none; color: white; border-radius: 6px; font-size: 0.85rem; font-weight: bold;"><i class="fa-solid fa-arrow-up-right-from-square"></i> Find Deal</a>
+                    </div>
+                `}).join('');
+
+                showModal(`Market Analysis: ${partName}`, `
+                    <p style="color: #cbd5e1; margin-bottom: 15px; font-size: 0.9rem;">We scanned the live market. Hover over a supplier's name to view their quick-contact card.</p>
+                    <div style="max-height: 350px; overflow-y: auto; padding-right: 5px; margin-bottom: 20px;">
+                        ${suppliersHtml}
+                    </div>
+                    <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+                        <button onclick="window.buyStock('${safeText(partName).replace(/'/g, "\\'")}')" class="primary-btn" style="background: #10b981; padding: 15px; font-size: 1.1rem; width: 100%;"><i class="fa-solid fa-database"></i> Finalize Local Restock (+10 Units)</button>
+                    </div>
+                `);
+            } else { showModal(`Error`, `<p style="color: #fca5a5;">Failed to analyze market format.</p>`); }
+        } catch(e) { showModal(`Error`, `<p style="color: #fca5a5;">Network connection failed.</p>`); }
+    };
+    // ↑↑↑ END BATCH 2 JAVASCRIPT ↑↑↑
+    // Feature 1 Engine: AJAX Background Updates
+    window.quickAdjustStock = async function(itemName, delta) {
+        try {
+            const res = await fetch('/api/inventory/adjust', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ item_name: itemName, delta: delta })
+            });
+            if (res.ok) {
+                let item = globalInventory.find(i => i.item_name === itemName);
+                if (item) {
+                    item.stock_level = Math.max(0, item.stock_level + delta);
+                    updateStockTable(); // Redraws just the table instantly!
+                    
+                    // Update Total Value Header
+                    let totalValue = globalInventory.reduce((sum, it) => sum + (it.stock_level * it.unit_price), 0);
+                    document.getElementById('total-capital-value').innerText = '₹' + totalValue.toLocaleString('en-IN');
+                }
+            }
+        } catch(e) { console.error("Adjustment failed", e); }
+    };
+
+    // Feature 7 Engine: CSV Generator
+    window.exportInventoryCSV = function() {
+        let csvContent = "data:text/csv;charset=utf-8,Item Name,Category,Stock Level,Unit Price (INR),Reorder Threshold\n";
+        globalInventory.forEach(i => {
+            let safeName = i.item_name.replace(/"/g, '""');
+            csvContent += `"${safeName}","${i.category}",${i.stock_level},${i.unit_price},${i.reorder_threshold}\n`;
+        });
+        const link = document.createElement("a");
+        link.setAttribute("href", encodeURI(csvContent));
+        link.setAttribute("download", `Stockroom_Audit_Report.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+    // ↑↑↑ END OF UPGRADED INVENTORY UI FUNCTION & LOGIC ↑↑↑
 
     window.handlePartRequest = async function(reqId, action) {
         if(!confirm(`Are you sure you want to ${action.toUpperCase()} this request?`)) return;
         try {
-            const res = await fetch('http://127.0.0.1:5005/api/inventory/request-action', {
+            const res = await fetch('/api/inventory/request-action', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({request_id: reqId, action: action})
             });
-            if(res.ok) renderInventoryUI('requests');
+            if(res.ok) window.renderInventoryUI('requests');
             else alert("Error processing request.");
         } catch(e) { alert("Network Error"); }
     };
-    window.searchStockOnline = async function(partName) {
-        showModal(`AI Procurement Agent: ${partName}`, `<p style="color:white; font-size:1.1rem; padding: 20px; text-align: center;"><i class="fa-solid fa-satellite-dish fa-spin"></i> Scanning Indian suppliers and online markets...</p>`);
+    
+    
+    // ↓↓↓ FEATURES 5, 6, & 7 JAVASCRIPT LOGIC ↓↓↓
+
+    // Feature 5: AI Alternatives
+    window.getAiAlternative = async function(partName, btnElement) {
+        btnElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
         try {
-            const res = await fetch('http://127.0.0.1:5005/api/inventory/search-online', {
+            const res = await fetch('/api/inventory/alternative', {
                 method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({part_name: partName})
             });
             const data = await res.json();
-            if(data.status === 'success') {
-                showModal(`Market Analysis: ${partName}`, `
-                    <div style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px; border-left: 4px solid #a855f7; margin-bottom: 25px;">
-                        <p style="color: #e2e8f0; line-height: 1.6; font-size: 1rem;">${data.analysis}</p>
-                    </div>
-                    <button onclick="buyStock('${partName}')" class="primary-btn" style="background: #10b981; padding: 15px; font-size: 1.1rem;"><i class="fa-solid fa-cart-shopping"></i> Authorize Purchase (+10 Units)</button>
-                `);
+            if (data.status === 'success') {
+                btnElement.parentElement.innerHTML = `<div style="background: rgba(168, 85, 247, 0.2); color: #c084fc; padding: 5px 10px; border-radius: 6px; font-size: 0.8rem; border: 1px solid #a855f7; margin-top: 5px;"><i class="fa-solid fa-robot"></i> ${data.suggestion}</div>`;
             } else {
-                showModal(`Error`, `<p style="color: #fca5a5;">Failed to analyze market.</p>`);
+                btnElement.innerHTML = 'AI Offline';
             }
-        } catch(e) { showModal(`Error`, `<p style="color: #fca5a5;">Network connection failed.</p>`); }
+        } catch(e) { btnElement.innerHTML = 'Error'; }
     };
+
+    // Feature 6: Price History Chart
+    window.viewPriceHistory = async function(partName) {
+        showModal(`Market Analytics: ${partName}`, `<p style="color:white; text-align:center;"><i class="fa-solid fa-spinner fa-spin"></i> Loading historical data...</p>`);
+        try {
+            const res = await fetch(`/api/inventory/price-history/${encodeURIComponent(partName)}`);
+            const data = await res.json();
+            
+            if (data.status === 'success') {
+                document.getElementById('modal-body').innerHTML = `
+                    <p style="color: #cbd5e1; margin-bottom: 15px; font-size: 0.9rem;">6-Month Indian Market Price Trend</p>
+                    <div style="height: 250px; width: 100%;">
+                        <canvas id="priceHistoryChart"></canvas>
+                    </div>
+                `;
+                
+                new Chart(document.getElementById('priceHistoryChart'), {
+                    type: 'line',
+                    data: {
+                        labels: data.data.map(d => d.month),
+                        datasets: [{
+                            label: 'Avg Unit Price (₹)',
+                            data: data.data.map(d => d.price),
+                            borderColor: '#38bdf8',
+                            backgroundColor: 'rgba(56, 189, 248, 0.2)',
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    },
+                    options: { 
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: { y: { grid: { color: 'rgba(255,255,255,0.1)' } }, x: { grid: { display: false } } }
+                    }
+                });
+            }
+        } catch(e) { document.getElementById('modal-body').innerHTML = '<p style="color:#fca5a5;">Failed to load analytics.</p>'; }
+    };
+
+    // Feature 7: Auto-Draft Purchase Orders Tab
+    window.renderDraftPOs = async function() {
+        document.querySelectorAll('.inv-tab-btn').forEach(btn => btn.style.background = 'rgba(255,255,255,0.1)');
+        document.getElementById('inv-tab-pos').style.background = '#38bdf8';
+        
+        const area = document.getElementById('inventory-dynamic-area');
+        area.innerHTML = '<p style="color:white;"><i class="fa-solid fa-spinner fa-spin"></i> Scanning for low stock...</p>';
+        
+        try {
+            const res = await fetch('/api/inventory/draft-pos');
+            const data = await res.json();
+            
+            let html = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="color: white;"><i class="fa-solid fa-robot"></i> AI Automated Purchase Drafts</h3>
+                </div>
+                <p style="color: #cbd5e1; font-size: 0.9rem; margin-bottom: 20px;">These items have fallen below their safety thresholds. Review and authorize procurement.</p>
+            `;
+            
+            if (data.status === 'success' && data.data.length > 0) {
+                html += data.data.map(d => `
+                    <div style="background: rgba(255,255,255,0.05); border-left: 4px solid #fca5a5; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong style="color: white; font-size: 1.1rem;">${safeText(d.item_name)}</strong><br>
+                            <span style="color: #fca5a5; font-size: 0.9rem;"><i class="fa-solid fa-triangle-exclamation"></i> Critical: ${d.stock_level} Units Left (Threshold: ${d.reorder_threshold})</span>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="searchStockOnline('${safeText(d.item_name).replace(/'/g, "\\'")}')" class="primary-btn" style="width: auto; padding: 8px 15px; background: #e08e45; font-size: 0.85rem;"><i class="fa-solid fa-globe"></i> Market Search</button>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                html += `<div style="padding: 20px; background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; border-radius: 8px; color: #10b981; font-weight: bold;"><i class="fa-solid fa-check-circle"></i> All stock levels are healthy. No POs required.</div>`;
+            }
+            area.innerHTML = html;
+        } catch(e) { area.innerHTML = '<p style="color:#fca5a5;">Failed to load drafts.</p>'; }
+    };
+    // ↑↑↑ END OF FEATURES 5, 6, 7 JAVASCRIPT ↑↑↑
+    // ↑↑↑ END OF ULTIMATE AI PROCUREMENT JS ↑↑↑
 
     window.buyStock = async function(partName) {
         document.getElementById('modal-body').innerHTML = `<p style="color:#10b981; font-size:1.2rem; text-align:center; padding: 20px;"><i class="fa-solid fa-check-circle"></i> Purchase Order Sent! Updating Local Database...</p>`;
         try {
-            await fetch('http://127.0.0.1:5005/api/inventory/buy', {
+            await fetch('/api/inventory/buy', {
                 method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({part_name: partName})
             });
             setTimeout(() => {
                 document.getElementById('universal-modal').classList.add('hidden');
-                renderInventoryUI('stock');
+                window.renderInventoryUI('stock');
             }, 1500);
         } catch(e) { alert("Error updating stock."); }
     };
-
+    // ↑↑↑ END OF BULLETPROOF INVENTORY LOGIC ↑↑↑
     // Auto-load inventory when tab is clicked
     const oldLoadModule = loadModule;
     loadModule = async function(moduleObj) {
@@ -1726,7 +2368,7 @@ const technicianModules = [
     };
     async function startTask(ticketId) {
         try {
-            await fetch(`http://127.0.0.1:5005/api/tickets/${ticketId}/start`, { method: 'PUT' });
+            await fetch(`/api/tickets/${ticketId}/start`, { method: 'PUT' });
             loadModule(technicianModules[0]); // Reload Task Queue
         } catch(e) { alert("Network Error"); }
     }
@@ -1749,25 +2391,37 @@ const technicianModules = [
         });
     }, 10000); // Ticks every 10 seconds to save CPU
     // ↑↑↑ END OF LIVE TIMER JS ↑↑↑
-let deptChart = null;
+    // ↓↓↓ UPGRADED ANALYTICS LOADER WITH FINANCIALS ↓↓↓
+    let deptChart = null;
     let statusChart = null;
+    let budgetChart = null; // New global variable for the budget chart
 
     window.loadAnalytics = async function() {
         try {
-            const res = await fetch('http://127.0.0.1:5005/api/analytics?t=' + Date.now());
-            const data = await res.json();
+            // Fetch both standard analytics and our new budget analytics simultaneously
+            const [resAnalytics, resBudget] = await Promise.all([
+                fetch('/api/analytics?t=' + Date.now()),
+                fetch('/api/analytics/budget?t=' + Date.now())
+            ]);
+            
+            const data = await resAnalytics.json();
+            const budgetData = await resBudget.json();
             
             if (data.status === 'success') {
                 const deptCtx = document.getElementById('deptChart');
                 const statusCtx = document.getElementById('statusChart');
+                const budgetCtx = document.getElementById('budgetChart');
                 
-                if (!deptCtx || !statusCtx) return; 
+                if (!deptCtx || !statusCtx || !budgetCtx) return; 
 
+                // Destroy old charts to prevent glitching when refreshing
                 if (deptChart) deptChart.destroy();
                 if (statusChart) statusChart.destroy();
+                if (budgetChart) budgetChart.destroy();
 
                 Chart.defaults.color = '#a1a1aa'; 
 
+                // 1. Department Workload Chart
                 deptChart = new Chart(deptCtx, {
                     type: 'doughnut',
                     data: {
@@ -1781,6 +2435,7 @@ let deptChart = null;
                     options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
                 });
 
+                // 2. Ticket Status Chart
                 statusChart = new Chart(statusCtx, {
                     type: 'bar',
                     data: {
@@ -1801,9 +2456,52 @@ let deptChart = null;
                         } 
                     }
                 });
+
+                // 3. NEW FINANCIAL BUDGET CHART
+                if (budgetData.status === 'success') {
+                    budgetChart = new Chart(budgetCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: budgetData.data.map(b => b.department),
+                            datasets: [
+                                {
+                                    label: 'Budget Allocated (₹)',
+                                    data: budgetData.data.map(b => b.budget),
+                                    backgroundColor: 'rgba(56, 189, 248, 0.2)', // Light Blue
+                                    borderColor: '#38bdf8',
+                                    borderWidth: 1,
+                                    borderRadius: 4
+                                },
+                                {
+                                    label: 'Total Spent (₹)',
+                                    data: budgetData.data.map(b => b.spent),
+                                    backgroundColor: '#e08e45', // Brand Orange
+                                    borderRadius: 4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { position: 'top', labels: { color: '#ffffff' } },
+                                tooltip: { mode: 'index', intersect: false }
+                            },
+                            scales: {
+                                y: { 
+                                    beginAtZero: true, 
+                                    grid: { color: 'rgba(255,255,255,0.1)' },
+                                    ticks: { callback: function(value) { return '₹' + value.toLocaleString(); } }
+                                },
+                                x: { grid: { display: false } }
+                            }
+                        }
+                    });
+                }
             }
         } catch (e) { console.error("Analytics load failed", e); }
     };
+    // ↑↑↑ END OF UPGRADED ANALYTICS LOADER ↑↑↑
     // AR Bot Chat
     function toggleChat() {
         const overlay = document.getElementById('ai-ar-overlay');
@@ -1825,6 +2523,264 @@ let deptChart = null;
         appendChatMessage(userText, true);
         setTimeout(() => appendChatMessage(botText, false), 600);
     }
+    // ↓↓↓ JAVASCRIPT FOR TOOL CHECKOUT SYSTEM ↓↓↓
+    window.renderToolTracking = async function() {
+        // Handle tab highlighting
+        document.querySelectorAll('.inv-tab-btn').forEach(btn => btn.style.background = 'rgba(255,255,255,0.1)');
+        document.getElementById('inv-tab-tools').style.background = '#38bdf8';
+        
+        const area = document.getElementById('inventory-dynamic-area');
+        area.innerHTML = '<p style="color:white;"><i class="fa-solid fa-spinner fa-spin"></i> Loading Tool Logs...</p>';
+
+        try {
+            const res = await fetch('/api/tools/active');
+            const data = await res.json();
+            
+            let html = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="color: white;">Equipment Tracking Log</h3>
+                    <button onclick="promptToolCheckout()" class="primary-btn" style="width: auto; padding: 10px 20px; background: #a855f7;"><i class="fa-solid fa-plus"></i> New Checkout</button>
+                </div>
+            `;
+            
+            if (data.status === 'success' && data.data.length > 0) {
+                html += data.data.map(t => {
+                    let isReturned = t.status === 'Returned';
+                    let statusColor = isReturned ? '#10b981' : '#fca5a5';
+                    let btnHtml = isReturned 
+                        ? `<span style="color: #10b981; font-weight: bold;"><i class="fa-solid fa-check-double"></i> Returned</span>` 
+                        : `<button onclick="markToolReturned(${t.id})" class="primary-btn" style="width: auto; padding: 6px 15px; background: #10b981; font-size: 0.85rem;"><i class="fa-solid fa-rotate-left"></i> Mark Returned</button>`;
+
+                    return `
+                    <div style="background: rgba(255,255,255,0.05); border-left: 4px solid ${statusColor}; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong style="color: white; font-size: 1.1rem;">${safeText(t.tool_name)}</strong><br>
+                            <span style="color: #9ca3af; font-size: 0.9rem;"><i class="fa-solid fa-hard-hat"></i> Borrowed by: <span style="color: white; font-weight: bold;">${safeText(t.tech_name)}</span></span>
+                        </div>
+                        <div>${btnHtml}</div>
+                    </div>
+                `}).join('');
+            } else {
+                html += `<div style="padding: 20px; background: rgba(255,255,255,0.05); border-radius: 8px; color: white;">No tools currently logged out.</div>`;
+            }
+            area.innerHTML = html;
+        } catch(e) {
+            area.innerHTML = '<p style="color:#fca5a5;">Failed to load tools.</p>';
+        }
+    };
+
+    window.promptToolCheckout = async function() {
+        const toolName = prompt("Enter the name/ID of the tool being borrowed (e.g., Heavy Duty Drill #4):");
+        if (!toolName) return;
+        const techName = prompt("Enter the name of the Technician borrowing it:");
+        if (!techName) return;
+
+        try {
+            await fetch('/api/tools/checkout', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({tool_name: toolName, tech_name: techName})
+            });
+            renderToolTracking(); // Instantly refresh the UI
+        } catch(e) { alert("Error logging tool checkout."); }
+    };
+
+    window.markToolReturned = async function(id) {
+        if(!confirm("Confirm this tool has been securely returned to the stockroom?")) return;
+        try {
+            await fetch('/api/tools/return/' + id, { method: 'PUT' });
+            renderToolTracking(); // Instantly refresh the UI
+        } catch(e) { alert("Error updating status."); }
+    };
+    // ↓↓↓ CLEAN RUNTIME ORCHESTRATION PIPELINES ↓↓↓
+    let heatmapChart = null;
+    let agentHeartbeatInterval = null;
+    let systemLockdownActive = false;
+
+    // Core crisis management engine trigger
+    window.executeCrisisOverride = async function() {
+        systemLockdownActive = !systemLockdownActive;
+        const targetBtn = document.getElementById('btn-lockdown-toggle');
+        
+        if (systemLockdownActive) {
+            targetBtn.innerHTML = `<i class="fa-solid fa-radiation fa-spin"></i> SYSTEM REVOKED`;
+            targetBtn.style.background = '#b91c1c';
+        } else {
+            targetBtn.innerHTML = `<i class="fa-solid fa-shield-radiation"></i> LOCKDOWN AI`;
+            targetBtn.style.background = '#ef4444';
+        }
+
+        try {
+            const res = await fetch('/api/ai/lockdown', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: systemLockdownActive })
+            });
+            const data = await res.json();
+            if(data.status === 'success') {
+                const alertBanner = document.getElementById('lockdown-alert-container');
+                if (alertBanner) {
+                    if (systemLockdownActive) {
+                        alertBanner.style.background = 'rgba(239, 68, 68, 0.12)';
+                        alertBanner.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                    } else {
+                        alertBanner.style.background = 'rgba(56, 189, 248, 0.08)';
+                        alertBanner.style.borderColor = 'rgba(56, 189, 248, 0.2)';
+                    }
+                }
+            }
+        } catch (e) { console.error("Crisis relay link broken."); }
+    };
+
+    const masterLoadModule = loadModule;
+    loadModule = async function(moduleObj) {
+        await masterLoadModule(moduleObj);
+        
+        if (agentHeartbeatInterval) clearInterval(agentHeartbeatInterval);
+        
+        if (moduleObj.id === 'ai-feed') {
+            
+            // --- 1. LIVE GEMINI TELEMETRY BRIEFING SYNC ---
+            const renderSystemBriefing = async () => {
+                try {
+                    const res = await fetch('/api/ai/briefing');
+                    const data = await res.json();
+                    const el = document.getElementById('gemini-briefing-text');
+                    if (el && data.status === 'success') el.innerText = data.briefing;
+                } catch(e) { console.error("Briefing matrix array isolated."); }
+            };
+
+            // --- 2. MULTI-AGENT COMPONENT HEARTBEAT MONITOR ---
+            const fetchAgentStatus = async () => {
+                try {
+                    const res = await fetch('/api/ai/system-status');
+                    const data = await res.json();
+                    if (data.status === 'success') {
+                        const cStat = document.getElementById('agent-class-status');
+                        const aStat = document.getElementById('agent-assign-status');
+                        const sStat = document.getElementById('agent-sla-status');
+                        
+                        if(cStat) { cStat.innerText = data.classification.text; cStat.style.color = data.classification.color; }
+                        if(aStat) { aStat.innerText = data.assignment.text; aStat.style.color = data.assignment.color; }
+                        if(sStat) { sStat.innerText = data.sla.text; sStat.style.color = data.sla.color; }
+                    }
+                } catch(e) {
+                    const fallback = document.getElementById('agent-class-status');
+                    if (fallback) fallback.innerText = "System Drop";
+                }
+            };
+
+            // Trigger initial state generation routines
+            renderSystemBriefing();
+            fetchAgentStatus();
+            agentHeartbeatInterval = setInterval(() => {
+                fetchAgentStatus();
+                renderSystemBriefing();
+            }, 15000);
+            
+            // --- 3. DATA MATRIX POLAR MAP CONFIGURATION ---
+            try {
+                const res = await fetch('/api/ai/heatmap');
+                const data = await res.json();
+                if (data.status === 'success') {
+                    const ctx = document.getElementById('campusHeatmapChart');
+                    if (!ctx) return;
+                    if (heatmapChart) heatmapChart.destroy();
+                    Chart.defaults.color = '#e2e8f0';
+                    heatmapChart = new Chart(ctx, {
+                        type: 'polarArea',
+                        data: {
+                            labels: data.labels,
+                            datasets: [{
+                                data: data.data,
+                                backgroundColor: [
+                                    'rgba(56, 189, 248, 0.55)', 'rgba(168, 85, 247, 0.55)', 
+                                    'rgba(16, 185, 129, 0.55)', 'rgba(245, 158, 11, 0.55)', 'rgba(239, 68, 68, 0.55)'
+                                ],
+                                borderColor: 'rgba(255,255,255,0.08)', borderWidth: 1
+                            }]
+                        },
+                        options: {
+                            responsive: true, maintainAspectRatio: false,
+                            plugins: { legend: { position: 'right', labels: { font: { size: 12 } } } },
+                            scales: { r: { grid: { color: 'rgba(255,255,255,0.08)' }, ticks: { display: false } } }
+                        }
+                    });
+                }
+            } catch(e) { console.error("Heatmap visualization stream error."); }
+        }
+    };
+    // ↑↑↑ END RUNTIME CONTROL SYSTEM MATRIX ↑↑↑
+    // ↓↓↓ HR MODULE CONTROLLERS ↓↓↓
+    window.toggleBreak = async function() {
+        try {
+            await fetch('/api/technicians/toggle-break', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: sessionStorage.getItem('hub_name')}) });
+            loadModule(technicianModules[1]); 
+        } catch(e) {}
+    };
+
+    window.toggleOvertime = async function() {
+        try {
+            await fetch('/api/technicians/toggle-overtime', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: sessionStorage.getItem('hub_name')}) });
+            loadModule(technicianModules[1]); 
+        } catch(e) {}
+    };
+
+    window.requestLeave = async function() {
+        const start = prompt("Start Date (YYYY-MM-DD):");
+        if(!start) return;
+        const end = prompt("End Date (YYYY-MM-DD):");
+        const reason = prompt("Reason (Sick, Vacation, etc.):");
+        try {
+            await fetch('/api/technicians/leave-requests', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tech_name: sessionStorage.getItem('hub_name'), start_date: start, end_date: end, reason: reason}) });
+            loadModule(technicianModules[1]); 
+        } catch(e) {}
+    };
+
+    window.postShiftTrade = async function(dept) {
+        const date = prompt("Which date do you need covered? (YYYY-MM-DD):");
+        if(!date) return;
+        try {
+            await fetch('/api/technicians/shift-trades', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({requester: sessionStorage.getItem('hub_name'), department: dept, target_date: date}) });
+            loadModule(technicianModules[1]); 
+        } catch(e) {}
+    };
+    // ↑↑↑ END HR MODULE CONTROLLERS ↑↑↑
+    // ↓↓↓ SAFETY & OPS CONTROLLERS ↓↓↓
+    window.updateGPSLocation = async function() {
+        const bldg = document.getElementById('geo-building-select').value;
+        sessionStorage.setItem('hub_bldg', bldg); // Save locally
+        try {
+            await fetch('/api/technicians/location', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: sessionStorage.getItem('hub_name'), building: bldg}) });
+        } catch(e) {}
+    };
+
+    window.submitHazardReport = async function() {
+        const desc = document.getElementById('hazard-desc').value;
+        if(!desc) return alert("Enter a short description first.");
+        const btn = event.target;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> AI Formatting...';
+        try {
+            const res = await fetch('/api/tickets/hazard', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: sessionStorage.getItem('hub_name'), building: sessionStorage.getItem('hub_bldg') || 'Unknown', description: desc}) });
+            const data = await res.json();
+            if(data.status === 'success') {
+                alert("✅ Hazard formatted and routed by AI:\n\n" + data.ticket);
+                document.getElementById('hazard-desc').value = '';
+                btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Auto-Report';
+            }
+        } catch(e) { btn.innerHTML = 'Error'; }
+    };
+
+    window.triggerSOS = async function() {
+        if(!confirm("⚠️ DANGER: Are you sure you want to trigger a campus-wide SOS?")) return;
+        try {
+            const res = await fetch('/api/tickets/sos', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: sessionStorage.getItem('hub_name'), building: sessionStorage.getItem('hub_bldg') || 'Unknown'}) });
+            if(res.ok) alert("🚨 SOS TRIGGERED! Admin and security have been notified of your exact location.");
+        } catch(e) {}
+    };
+    // ↑↑↑ END SAFETY CONTROLLERS ↑↑↑
+
+
+
 </script>
 </body>
 </html>
