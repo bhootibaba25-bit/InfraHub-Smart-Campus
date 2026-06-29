@@ -807,8 +807,7 @@ def toggle_shift():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
-        # ------------------------
-
+        
         conn.execute("UPDATE technicians SET is_on_shift = ? WHERE name = ?", (new_status, tech_name))
         
         status_msg = "Clocked In: You are now receiving AI dispatches." if new_status == 1 else "Clocked Out: AI dispatches paused."
