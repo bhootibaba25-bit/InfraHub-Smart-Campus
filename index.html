@@ -1351,19 +1351,7 @@ const technicianModules = [
         if(document.getElementById('ticket-search-bar')) filterTickets();
     };
 
-    // MOBILE SWIPE GESTURES (Swipe Right = Accept, Left = Decline)
-    window.attachSwipeHandlers = function() {
-        document.querySelectorAll('.swipeable').forEach(card => {
-            let startX = 0;
-            card.ontouchstart = e => startX = e.changedTouches[0].screenX;
-            card.ontouchend = e => {
-                let endX = e.changedTouches[0].screenX;
-                if (endX - startX > 75) acceptTicket(card.dataset.id, 'Medium'); // Swipe Right
-                else if (startX - endX > 75) openDeclineModal(card.dataset.id);  // Swipe Left
-            };
-        });
-    };
-
+  
    // AI ASSISTANT FUNCTIONS
     window.runPreFlight = async function(id, issue, btn) {
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking...';
