@@ -743,12 +743,8 @@ const technicianModules = [
                         <i class="fa-solid fa-magnifying-glass input-icon" style="color: rgba(255,255,255,0.6);"></i>
                         <input type="text" id="ticket-search-bar" placeholder="Filter tasks..." onkeyup="filterTickets()" style="background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; padding-left: 45px;">
                     </div>
-                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 4px;">
-                        <button onclick="window.taskViewMode = 'list'; renderTechTickets('All')" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1);"><i class="fa-solid fa-list"></i> List</button>
-                        <button onclick="window.taskViewMode = 'kanban'; renderTechTickets('All')" class="primary-btn" style="width: auto; padding: 8px 15px; background: #38bdf8;"><i class="fa-solid fa-columns"></i> Kanban</button>
-                    </div>
                 </div>
-                <div id="module-dynamic-area"><p style="color:white;">Fetching Agile Board...</p></div>
+                <div id="module-dynamic-area"><p style="color:white;">Fetching Task Queue...</p></div>
             ` 
         },
         { 
