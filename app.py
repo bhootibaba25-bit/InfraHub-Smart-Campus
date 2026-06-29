@@ -795,23 +795,18 @@ def toggle_shift():
             return jsonify({"status": "error", "message": "Technician not found."}), 404
             
         new_status = 0 if tech['is_on_shift'] == 1 else 1
+
+        conn.execute("UPDATE technicians SET is_on_shift = ? WHERE name = ?", (new_status, tech_name))
         
-        # --- STRICT TIME LIMIT LOGIC ---
-        # If the technician is trying to clock IN (1), check the system clock
-        if new_status == 1:
-            from datetime import datetime
-            now = datetime.now()
-            current_hour = now.hour
-            current_minute = now.minute
-            
-            # Check-In Window: Hour MUST be 7, and minute MUST be 45 or less.
-           if current_hour != 7 or current_minute > 45:
-                # We show them exactly what time the server thinks it is so they can't argue!
-                time_str = now.strftime('%I:%M %p')
-                return jsonify({
-                    "status": "error", 
-                    "message": f"Late Check-In Blocked.\n\nYou must clock in strictly between 07:00 AM and 07:45 AM.\nCurrent server time: {time_str}."
-                }), 403
+        status_msg = "Clocked In: You are now receiving AI dispatches." if new_status == 1 else "Clocked Out: AI dispatches paused."
+        add_notification(tech_name, None, status_msg, db_conn=conn)
+        
+        conn.commit()
+        return jsonify({"status": "success", "is_on_shift": new_status}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
         # ------------------------
 
         conn.execute("UPDATE technicians SET is_on_shift = ? WHERE name = ?", (new_status, tech_name))
