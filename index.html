@@ -7,18 +7,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        /* =========================================
-           14. KANBAN & SLA RING STYLES
-           ========================================= */
-        .kanban-board { display: flex; gap: 20px; overflow-x: auto; padding-bottom: 20px; min-height: 60vh; }
-        .kanban-board::-webkit-scrollbar { height: 8px; }
-        .kanban-board::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.5); border-radius: 4px; }
-        
-        .kanban-column { flex: 1; min-width: 320px; background: rgba(0,0,0,0.2); border-radius: 12px; padding: 15px; border: 1px solid rgba(255,255,255,0.1); }
-        .kanban-header { color: white; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; }
-        
-        .kanban-card { background: rgba(255,255,255,0.1); backdrop-filter: blur(8px); padding: 15px; border-radius: 8px; margin-bottom: 15px; cursor: grab; position: relative; border-left: 4px solid #38bdf8; transition: transform 0.2s; }
-        .kanban-card:active { cursor: grabbing; opacity: 0.8; transform: scale(0.98); }
+       
         
         /* SLA Circular Ring Progress */
         .sla-ring { position: absolute; top: 15px; right: 15px; width: 45px; height: 45px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 0.75rem; font-weight: bold; background: conic-gradient(#10b981 var(--p), rgba(255,255,255,0.1) 0); box-shadow: 0 0 10px rgba(0,0,0,0.5); }
@@ -1320,89 +1309,46 @@ const technicianModules = [
 
     // Ticket Renderers (Admin, Tech, User)
     
-    // ↓↓↓ BATCH 7: KANBAN, AI, & SWIPE LOGIC ↓↓↓
-    window.taskViewMode = 'kanban'; // Default to Kanban
-
-    window.renderTechTickets = function(filterType) {
+   window.renderTechTickets = function(filterType) {
         let html = '';
         
-        // 1. KANBAN VIEW RENDERER
-        if (window.taskViewMode === 'kanban') {
-            html += `<div class="kanban-board">`;
-            const columns = [
-                { name: 'Pending', status: ['Pending', 'Decline Requested'], color: '#f59e0b' },
-                { name: 'In Progress', status: ['Assigned', 'In Progress', 'Awaiting Parts'], color: '#38bdf8' },
-                { name: 'Completed', status: ['Resolved'], color: '#10b981' }
-            ];
-
-            columns.forEach(col => {
-                html += `
-                    <div class="kanban-column" ondrop="drop(event, '${col.status[0]}')" ondragover="allowDrop(event)">
-                        <div class="kanban-header">
-                            <strong><i class="fa-solid fa-circle" style="color:${col.color}; font-size:0.6rem;"></i> ${col.name}</strong>
-                            <span class="badge" style="background:rgba(255,255,255,0.1);">${globalTicketsData.filter(t => col.status.includes(t.status)).length}</span>
-                        </div>
-                `;
-
-                globalTicketsData.filter(t => col.status.includes(t.status)).forEach(t => {
-                    // SLA Math (48 Hours = 2880 mins)
-                    let createdDate = new Date(t.created_at.replace(' ', 'T') + "Z");
-                    let elapsedMins = (Date.now() - createdDate) / 60000;
-                    let hrsLeft = Math.max(0, Math.floor(48 - (elapsedMins / 60)));
-                    let slaPercent = Math.min(100, (elapsedMins / 2880) * 100);
-                    let slaClass = slaPercent > 80 ? 'sla-warning' : '';
-                    let urgencyColor = t.priority === 'Urgent' ? '#ef4444' : (t.priority === 'High' ? '#fbbf24' : '#38bdf8');
-
-                    html += `
-                        <div class="kanban-card swipeable" draggable="true" ondragstart="drag(event, '${t.ticket_id}')" data-id="${t.ticket_id}" style="border-left-color: ${urgencyColor};">
-                            <div class="sla-ring ${slaClass}" style="--p:${slaPercent}%;" title="SLA Countdown">
-                                <div class="sla-ring-inner">${hrsLeft}h</div>
-                            </div>
-                            
-                            <h4 style="color:white; width:75%; margin-bottom:8px;">${t.ticket_id}</h4>
-                            <p style="font-size:0.85rem; color:#cbd5e1; margin-bottom:15px;">${safeText(t.issue)}</p>
-                            
-                            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;">
-                                ${col.name === 'Pending' ? `<button onclick="runPreFlight('${t.ticket_id}', '${safeText(t.issue).replace(/'/g, "\\'")}', this)" class="primary-btn" style="padding:5px 8px; font-size:0.7rem; background:#a855f7; width:auto;"><i class="fa-solid fa-boxes"></i> Pre-Flight Check</button>` : ''}
-                                <button onclick="draftUpdate('${t.status}', '${safeText(t.issue).replace(/'/g, "\\'")}', '${t.user_name}', this)" class="primary-btn" style="padding:5px 8px; font-size:0.7rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Formal Update</button>                                <button onclick="summarizeThread('${safeText(t.issue).replace(/'/g, "\\'")}', this)" class="primary-btn" style="padding:5px 8px; font-size:0.7rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
-                            </div>
-                            <div id="ai-out-${t.ticket_id}" style="margin-top:12px; font-size:0.8rem; color:#10b981; font-weight:bold;"></div>
-                        </div>
-                    `;
-                });
-                html += `</div>`; // Close Column
-            });
-            html += `</div>`; // Close Board
-        } 
-        else {
-            // Keep the basic list fallback if needed
-            html = `<p style="color:white;">Switched to standard list view.</p>`;
-        }
-        
-        document.getElementById('module-dynamic-area').innerHTML = html;
-        setTimeout(attachSwipeHandlers, 200); // Attach mobile swipe logic
-    };
-
-    // DRAG AND DROP KANBAN ENGINE
-    window.allowDrop = function(ev) { ev.preventDefault(); };
-    window.drag = function(ev, id) { ev.dataTransfer.setData("text", id); };
-    window.drop = async function(ev, newStatus) {
-        ev.preventDefault();
-        let ticketId = ev.dataTransfer.getData("text");
-        
-        // Auto-assign if dropped into "In Progress" from Pending
-        if (newStatus === 'Assigned' || newStatus === 'In Progress') {
-            await fetch(`/api/tickets/${ticketId}/accept`, { 
-                method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tech_name: sessionStorage.getItem('hub_name')}) 
-            });
+        if (globalTicketsData.length === 0) { 
+            html = `<div class="ticket-card"><p style="color:white;">No tasks currently in your queue.</p></div>`; 
         } else {
-            await fetch(`/api/tickets/${ticketId}/update-status`, { 
-                method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({status: newStatus}) 
+            globalTicketsData.forEach(t => {
+                let urgencyColor = '#10b981', urgencyBg = 'rgba(16, 185, 129, 0.2)', pulseClass = '';
+                if (t.priority === 'Urgent') { urgencyColor = '#fca5a5'; urgencyBg = 'rgba(254, 226, 226, 0.2)'; pulseClass = 'pulse-urgent'; } 
+                else if (t.priority === 'High') { urgencyColor = '#fbbf24'; urgencyBg = 'rgba(251, 191, 36, 0.2)'; }
+
+                html += `
+                    <div class="ticket-card ${pulseClass}" style="border-left: 4px solid ${urgencyColor};">
+                        <div class="ticket-header">
+                            <span class="ticket-id">${t.ticket_id}</span>
+                            <div>
+                                <span class="badge" style="background: ${urgencyBg}; color: ${urgencyColor}; margin-right: 5px;"><i class="fa-solid fa-bolt"></i> ${t.priority || 'Medium'}</span>
+                                <span class="badge badge-progress" style="background: rgba(255,255,255,0.2); color: white;">${t.status}</span>
+                            </div>
+                        </div>
+                        <h3 class="ticket-title">${safeText(t.issue)}</h3>
+                        <p class="ticket-meta"><i class="fa-solid fa-location-dot"></i> ${t.building} (${t.location}) &nbsp;|&nbsp; <i class="fa-regular fa-clock"></i> ${timeAgo(t.created_at)}</p>
+                        
+                        <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button onclick="runPreFlight('${t.ticket_id}', '${safeText(t.issue).replace(/'/g, "\\'")}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#a855f7; width:auto;"><i class="fa-solid fa-boxes"></i> AI Pre-Flight</button>
+                            <button onclick="draftUpdate('${t.status}', '${safeText(t.issue).replace(/'/g, "\\'")}', '${t.user_name}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Update User</button>
+                            <button onclick="summarizeThread('${safeText(t.issue).replace(/'/g, "\\'")}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
+                            
+                            ${t.status === 'Pending' || t.status === 'Assigned' ? `<button onclick="acceptTicket('${t.ticket_id}', '${t.priority}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#10b981; width:auto;"><i class="fa-solid fa-check"></i> Accept Job</button>` : ''}
+                            ${t.status === 'In Progress' ? `<button onclick="resolveTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#38bdf8; width:auto;"><i class="fa-solid fa-flag-checkered"></i> Mark Resolved</button>` : ''}
+                        </div>
+                        <div id="ai-out-${t.ticket_id}" style="margin-top:12px; font-size:0.85rem; color:#10b981; font-weight:bold;"></div>
+                    </div>
+                `;
             });
         }
-        // Force soft refresh of data
-        document.getElementById('module-dynamic-area').innerHTML = '<p style="color:white;"><i class="fa-solid fa-spinner fa-spin"></i> Syncing Board...</p>';
-        loadModule(technicianModules[0]); 
+        
+        const targetArea = document.getElementById('module-dynamic-area');
+        if (targetArea) targetArea.innerHTML = html;
+        if(document.getElementById('ticket-search-bar')) filterTickets();
     };
 
     // MOBILE SWIPE GESTURES (Swipe Right = Accept, Left = Decline)
