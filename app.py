@@ -807,18 +807,6 @@ def toggle_shift():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
-        
-        conn.execute("UPDATE technicians SET is_on_shift = ? WHERE name = ?", (new_status, tech_name))
-        
-        status_msg = "Clocked In: You are now receiving AI dispatches." if new_status == 1 else "Clocked Out: AI dispatches paused."
-        add_notification(tech_name, None, status_msg, db_conn=conn)
-        
-        conn.commit()
-        return jsonify({"status": "success", "is_on_shift": new_status}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
-        conn.close()
 
 # ↑↑↑ END TIME-GATED SHIFT TOGGLE ↑↑↑
 
