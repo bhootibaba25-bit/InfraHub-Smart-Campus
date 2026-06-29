@@ -298,12 +298,20 @@ def register():
     data = request.json
     conn = get_db_connection()
     try:
-        conn.execute('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)', (data['name'], data['email'], data['password'], data['role']))
+        requested_role = data.get('role')
         
-        if data['role'] == 'Campus Technician':
-            dept = data.get('department', 'Pending Assignment')
-            conn.execute('INSERT INTO technicians (name, department, current_active_hours, max_shift_hours, is_on_shift) VALUES (?, ?, ?, ?, ?)', (data['name'], dept, 0, 8, 0))        
-        add_notification(data['name'], None, f"Welcome to InfraHub! Your {data['role']} account is set up and ready.", db_conn=conn)
+        # 1. NEW SECURITY GATE: Prevent unauthorized Admin/Tech accounts
+        if requested_role in ['Portal Admin', 'Campus Technician']:
+            return jsonify({
+                "status": "error", 
+                "message": f"Security Policy: You cannot self-register as a {requested_role}. Please contact the Master Admin for elevated access."
+            }), 403
+            
+        # 2. Proceed with normal registration for Campus Users
+        conn.execute('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)', 
+                     (data['name'], data['email'], data['password'], requested_role))
+        
+        add_notification(data['name'], None, f"Welcome to InfraHub! Your {requested_role} account is set up and ready.", db_conn=conn)
         conn.commit()
         return jsonify({"status": "success", "message": "User registered successfully"})
     except Exception as e:
