@@ -789,7 +789,8 @@ def toggle_shift():
 def get_inventory():
     conn = get_db_connection()
     try:
-        items = conn.execute("SELECT * FROM inventory ORDER BY stock_level ASC").fetchall()
+        # FIX: We use CAST() to force Postgres to send standard floats to the frontend
+        items = conn.execute("SELECT id, item_name, category, stock_level, reorder_threshold, CAST(unit_price AS FLOAT) as unit_price FROM inventory ORDER BY stock_level ASC").fetchall()
         requests = conn.execute("SELECT * FROM part_requests ORDER BY requested_at DESC").fetchall()
         return jsonify({"status": "success", "inventory": [dict(i) for i in items], "requests": [dict(r) for r in requests]}), 200
     except Exception as e: return jsonify({"status": "error", "message": str(e)}), 500
@@ -1106,7 +1107,8 @@ def get_price_history(item_name):
 def get_draft_pos():
     conn = get_db_connection()
     try:
-        drafts = conn.execute("SELECT * FROM inventory WHERE stock_level <= reorder_threshold").fetchall()
+        # FIX: Added CAST() here as well so the Purchase Drafts tab renders properly
+        drafts = conn.execute("SELECT id, item_name, category, stock_level, reorder_threshold, CAST(unit_price AS FLOAT) as unit_price FROM inventory WHERE stock_level <= reorder_threshold").fetchall()
         return jsonify({"status": "success", "data": [dict(d) for d in drafts]})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
