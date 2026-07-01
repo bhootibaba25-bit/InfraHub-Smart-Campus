@@ -1546,9 +1546,12 @@ const technicianModules = [
                             <div class="tracker-step ${c4}"><div class="tracker-dot"><i class="fa-solid fa-flag-checkered"></i></div><span class="tracker-label">Resolved</span></div>
                         </div>
                     </div>
-                    <div style="margin-top: 15px; display: flex; gap: 10px;">
-<button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>                        <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(248, 113, 113, 0.2); color: #fca5a5; font-size: 0.85rem;" onclick="deleteRequest('${t.ticket_id}')"><i class="fa-solid fa-trash"></i> Withdraw</button>
-                    </div>
+                   <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
+                            <button onclick="summarizeThread('${safeText(t.issue).replace(/'/g, "\\'")}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
+                            <button onclick="draftUpdate('${t.status}', '${safeText(t.issue).replace(/'/g, "\\'")}', '${t.user_name}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Formal Update</button>
+                            <button onclick="transferTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#f59e0b; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-right-left"></i> Force Transfer</button>
+                        </div>
                 </div>`;
             });
         }
@@ -1838,9 +1841,30 @@ const technicianModules = [
      let resolveDate = new Date(createdDate.getTime() + (48 * 60 * 60 * 1000)).toLocaleDateString();
 
      // Generate Image HTML (Split Screen Feature)
-     let initPhotoHtml = (t.photo_attached && t.photo_attached !== 'None') ? `<img src="${t.photo_attached}" style="width:100%; max-height:200px; object-fit:cover; border-radius:8px;">` : `<div style="padding:40px 0; text-align:center; color:rgba(255,255,255,0.4); background:rgba(0,0,0,0.2); border-radius:8px;"><i class="fa-solid fa-image"></i> No photo</div>`;
-     let resPhotoHtml = (t.resolution_photo && t.resolution_photo !== 'None') ? `<img src="${t.resolution_photo}" style="width:100%; max-height:200px; object-fit:cover; border-radius:8px;">` : `<div style="padding:40px 0; text-align:center; color:rgba(255,255,255,0.4); background:rgba(0,0,0,0.2); border-radius:8px;"><i class="fa-solid fa-camera"></i> Awaiting completion image</div>`;
+     // ==========================================
+     // STRICT PHOTO VISIBILITY RULES
+     // ==========================================
+     let initPhotoHtml = '';
+     let resPhotoHtml = '';
 
+     const noPhotoBox = `<div style="padding:40px 0; text-align:center; color:rgba(255,255,255,0.4); background:rgba(0,0,0,0.2); border-radius:8px;"><i class="fa-solid fa-image"></i> No photo</div>`;
+     const noResBox = `<div style="padding:40px 0; text-align:center; color:rgba(255,255,255,0.4); background:rgba(0,0,0,0.2); border-radius:8px;"><i class="fa-solid fa-camera"></i> Awaiting completion image</div>`;
+     const restrictedBox = `<div style="padding:40px 0; text-align:center; color:rgba(239, 68, 68, 0.8); background:rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius:8px;"><i class="fa-solid fa-lock"></i> Restricted Access</div>`;
+
+     let userPic = (t.photo_attached && t.photo_attached !== 'None') ? `<img src="${t.photo_attached}" style="width:100%; max-height:200px; object-fit:cover; border-radius:8px;">` : noPhotoBox;
+     let techPic = (t.resolution_photo && t.resolution_photo !== 'None') ? `<img src="${t.resolution_photo}" style="width:100%; max-height:200px; object-fit:cover; border-radius:8px;">` : noResBox;
+
+     if (loggedInRole === 'Campus User' || loggedInRole === 'Campus Staff') {
+         initPhotoHtml = restrictedBox; // User cannot see the initial photo
+         resPhotoHtml = techPic;        // User CAN see tech's resolution
+     } else if (loggedInRole === 'Campus Technician') {
+         initPhotoHtml = userPic;       // Tech CAN see user's initial photo
+         resPhotoHtml = restrictedBox;  // Tech cannot see resolution photo
+     } else {
+         // Admin / Master Tech sees BOTH
+         initPhotoHtml = userPic;
+         resPhotoHtml = techPic;
+     }
      showModal(
          `Detailed Ticket Overview: ${t.ticket_id}`, 
          `
