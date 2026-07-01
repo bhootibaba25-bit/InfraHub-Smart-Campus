@@ -1081,7 +1081,7 @@ const technicianModules = [
                 if (data.status === 'success') { 
                     globalTicketsData = data.data; 
                     if (moduleObj.id === 'agent-logs') renderAdminTickets('Queue');
-                    else if (loggedInRole === 'Campus Technician') renderTechTickets('Pending');
+                    else if (loggedInRole === 'Campus Technician' || loggedInRole === 'Master Technician') renderTechTickets('Pending');
                     else renderUserTickets();
                 }
             } catch (e) { if(targetArea) targetArea.innerHTML = "<p style='color:#fca5a5;'>Error fetching tickets.</p>"; }
