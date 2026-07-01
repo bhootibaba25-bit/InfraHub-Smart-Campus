@@ -1370,11 +1370,6 @@ import time
 LAST_BRIEFING_TEXT = ""
 LAST_BRIEFING_TIME = 0
 
-# ↓↓↓ GLOBALS FOR AI CACHING ↓↓↓
-import time
-LAST_BRIEFING_TEXT = ""
-LAST_BRIEFING_TIME = 0
-
 @app.route('/api/ai/briefing')
 def get_campus_briefing():
     global LOCKDOWN_MODE, LAST_BRIEFING_TEXT, LAST_BRIEFING_TIME
