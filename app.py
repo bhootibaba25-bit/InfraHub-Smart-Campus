@@ -602,8 +602,8 @@ def resolve_ticket(ticket_id):
     finally:
         conn.close()
         
- @app.route('/api/tickets/<ticket_id>/transfer', methods=['POST'])
- def transfer_ticket(ticket_id):
+@app.route('/api/tickets/<ticket_id>/transfer', methods=['POST'])
+def transfer_ticket(ticket_id):
     data = request.json
     new_dept = data.get('new_department')
     reason = data.get('reason')
