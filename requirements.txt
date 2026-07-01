@@ -4,4 +4,4 @@ python-dotenv
 google-genai
 Flask-Mail
 gunicorn
-libsql
+libsql-experimental
