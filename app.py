@@ -76,12 +76,18 @@ def notify_status_change(ticket_id, new_status, db_conn=None):
             conn.close()
 
 # ==========================================
-# 2. DATABASE ARCHITECTURE (PRODUCTION MODE)
+# 2. DATABASE ARCHITECTURE (TURSO CLOUD)
 # ==========================================
 def get_db_connection():
-    conn = sqlite3.connect('campus_hub.db', timeout=20)
-    # WAL Mode drastically improves concurrent database access
-    conn.execute('PRAGMA journal_mode=WAL;') 
+    url = os.getenv("TURSO_DATABASE_URL")
+    token = os.getenv("TURSO_AUTH_TOKEN")
+    
+    if url and token:
+        import libsql_experimental as libsql
+        conn = libsql.connect(database=url, auth_token=token)
+    else:
+        conn = sqlite3.connect('campus_hub.db', timeout=20)
+        conn.execute('PRAGMA journal_mode=WAL;') 
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -90,18 +96,24 @@ def init_db():
     try:
         c = conn.cursor()
         
-        # 1. CREATE TABLES FIRST
-        c.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, custom_id TEXT, name TEXT, email TEXT UNIQUE, password TEXT, role TEXT, mobile_no TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS technicians (technician_id INTEGER PRIMARY KEY AUTOINCREMENT, custom_id TEXT, name TEXT, department TEXT, current_active_hours INTEGER DEFAULT 0, max_shift_hours INTEGER DEFAULT 8, is_on_shift BOOLEAN DEFAULT 1, mobile_no TEXT, points INTEGER DEFAULT 0)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS tickets (ticket_id TEXT PRIMARY KEY, user_name TEXT, role TEXT, department TEXT, building TEXT, location TEXT, issue TEXT, photo_attached TEXT, priority TEXT, ai_analysis TEXT, assigned_technician TEXT DEFAULT 'Unassigned', status TEXT DEFAULT 'Pending', decline_reason TEXT, read_status INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, qa_sent INTEGER DEFAULT 0)''')
+        # 1. CREATE CORE INFRASTRUCTURE TABLES
+        c.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, custom_id TEXT, name TEXT, email TEXT UNIQUE, password TEXT, role TEXT, mobile_no TEXT, account_status TEXT DEFAULT 'Approved')''')
+        c.execute('''CREATE TABLE IF NOT EXISTS technicians (technician_id INTEGER PRIMARY KEY AUTOINCREMENT, custom_id TEXT, name TEXT, department TEXT, current_active_hours INTEGER DEFAULT 0, max_shift_hours INTEGER DEFAULT 8, is_on_shift BOOLEAN DEFAULT 0, mobile_no TEXT, points INTEGER DEFAULT 0, on_break INTEGER DEFAULT 0, overtime_opt_in INTEGER DEFAULT 0, badges_unlocked TEXT DEFAULT 'Welcome Aboard', current_building TEXT DEFAULT 'Main Building', account_status TEXT DEFAULT 'Approved')''')
+        c.execute('''CREATE TABLE IF NOT EXISTS tickets (ticket_id TEXT PRIMARY KEY, user_name TEXT, role TEXT, department TEXT, building TEXT, location TEXT, issue TEXT, photo_attached TEXT, priority TEXT, ai_analysis TEXT, assigned_technician TEXT DEFAULT 'Unassigned', status TEXT DEFAULT 'Pending', decline_reason TEXT, read_status INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, qa_sent INTEGER DEFAULT 0, started_at TIMESTAMP, time_taken_mins INTEGER DEFAULT 0, user_rating INTEGER DEFAULT 0, user_feedback TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS system_notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, target_user TEXT, target_role TEXT, message TEXT, is_urgent INTEGER DEFAULT 0, is_read INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-        
         c.execute('''CREATE TABLE IF NOT EXISTS inventory (id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT, category TEXT, stock_level INTEGER DEFAULT 0, reorder_threshold INTEGER DEFAULT 5, unit_price REAL)''')
         c.execute('''CREATE TABLE IF NOT EXISTS part_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id TEXT, tech_name TEXT, part_name TEXT, status TEXT DEFAULT 'Pending', requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
         c.execute('''CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, action TEXT, target TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS shift_trades (id INTEGER PRIMARY KEY AUTOINCREMENT, requester TEXT, department TEXT, target_date TEXT, status TEXT DEFAULT 'Pending')''')
+        c.execute('''CREATE TABLE IF NOT EXISTS leave_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, tech_name TEXT, start_date TEXT, end_date TEXT, reason TEXT, status TEXT DEFAULT 'Pending')''')
         
-        # Seed initial inventory if empty
-       # ↓↓↓ REPLACED INVENTORY SEED WITH 10 REAL DEPARTMENTS & RUPEES ↓↓↓
+        # Add account status to existing tables safely
+        try: c.execute("ALTER TABLE users ADD COLUMN account_status TEXT DEFAULT 'Approved'")
+        except: pass
+        try: c.execute("ALTER TABLE technicians ADD COLUMN account_status TEXT DEFAULT 'Approved'")
+        except: pass
+
+        # 2. SEED INITIAL INVENTORY
         inv_check = c.execute("SELECT COUNT(*) FROM inventory").fetchone()[0]
         if inv_check == 0:
             seed_items = [
@@ -119,71 +131,39 @@ def init_db():
                 ('Fluke Digital Multimeter', 'Equipment Support', 3, 2, 3400.00)
             ]
             c.executemany("INSERT INTO inventory (item_name, category, stock_level, reorder_threshold, unit_price) VALUES (?, ?, ?, ?, ?)", seed_items)
-        # ↑↑↑ END OF REPLACED INVENTORY SEED ↑↑↑
-        try:
-            c.execute("ALTER TABLE tickets ADD COLUMN qa_sent INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            c.execute("ALTER TABLE technicians ADD COLUMN points INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            c.execute("ALTER TABLE tickets ADD COLUMN started_at TIMESTAMP")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            c.execute("ALTER TABLE tickets ADD COLUMN time_taken_mins INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass
-        # 3. RUN UPDATES
-        c.execute("UPDATE tickets SET department = 'IT & Network Services' WHERE department = 'Technology Services'")
-        c.execute("UPDATE tickets SET department = 'Equipment Support' WHERE department = 'Laboratory Equipment Support'")
-        c.execute("UPDATE technicians SET is_on_shift = 0")
-        # ↓↓↓ BATCH 3: HR & TIME MANAGEMENT TABLES ↓↓↓
-        c.execute('''CREATE TABLE IF NOT EXISTS shift_trades (id INTEGER PRIMARY KEY AUTOINCREMENT, requester TEXT, department TEXT, target_date TEXT, status TEXT DEFAULT 'Pending')''')
-        c.execute('''CREATE TABLE IF NOT EXISTS leave_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, tech_name TEXT, start_date TEXT, end_date TEXT, reason TEXT, status TEXT DEFAULT 'Pending')''')
-        try: c.execute("ALTER TABLE technicians ADD COLUMN on_break INTEGER DEFAULT 0")
-        except: pass
-        try: c.execute("ALTER TABLE technicians ADD COLUMN overtime_opt_in INTEGER DEFAULT 0")
-        except: pass
-        # ↑↑↑ END HR TABLES ↑↑↑
-        # ↓↓↓ BATCH 4: GAMIFICATION & FEEDBACK TABLES ↓↓↓
-        try: c.execute("ALTER TABLE tickets ADD COLUMN user_rating INTEGER DEFAULT 0")
-        except: pass
-        try: c.execute("ALTER TABLE tickets ADD COLUMN user_feedback TEXT")
-        except: pass
-        try: c.execute("ALTER TABLE technicians ADD COLUMN badges_unlocked TEXT DEFAULT 'Welcome Aboard'")
-        except: pass
-        # ↑↑↑ END BATCH 4 ↑↑↑
-        # ↓↓↓ BATCH 5: SAFETY & LOCATION TRACKING ↓↓↓
-        try: c.execute("ALTER TABLE technicians ADD COLUMN current_building TEXT DEFAULT 'Main Building'")
-        except: pass
-        # ↓↓↓ PERMANENT INVINCIBLE ACCOUNTS ↓↓↓
-        try:
-            # 1. Permanent Admin
-            c.execute('''INSERT OR IGNORE INTO users (name, email, password, role) 
-                         VALUES ('Master Admin', 'admin@campus.edu', 'Admin123!', 'Portal Admin')''')
-            
-            # 2. Permanent Campus Staff (User)
-            c.execute('''INSERT OR IGNORE INTO users (name, email, password, role) 
-                         VALUES ('Campus User', 'user@campus.edu', 'User123!', 'Campus Staff')''')
-            
-            # 3. Permanent Technician (Added to BOTH users and technicians tables)
-            c.execute('''INSERT OR IGNORE INTO users (name, email, password, role) 
-                         VALUES ('Aarav Sharma', 'tech@campus.edu', 'Tech123!', 'Campus Technician')''')
-            
-            c.execute('''INSERT OR IGNORE INTO technicians (name, department, is_on_shift, on_break, current_active_hours, max_shift_hours) 
-                         VALUES ('Aarav Sharma', 'All', 1, 0, 0, 8)''')
-        except Exception as e:
-            pass # Fails silently if they already exist
-        # ↑↑↑ END PERMANENT ACCOUNTS ↑↑↑
+
+        # 3. SEED PERMANENT SYSTEM MANAGEMENT ACCOUNTS
+        c.execute('''INSERT OR IGNORE INTO users (name, email, password, role, account_status) 
+                     VALUES ('Master Admin', 'admin@campus.edu', 'Admin123!', 'Portal Admin', 'Approved')''')
         
+        c.execute('''INSERT OR IGNORE INTO users (name, email, password, role, account_status) 
+                     VALUES ('Master Tech Aarav', 'tech@campus.edu', 'Tech123!', 'Master Technician', 'Approved')''')
+        c.execute('''INSERT OR IGNORE INTO technicians (name, department, is_on_shift, max_shift_hours, account_status) 
+                     VALUES ('Master Tech Aarav', 'All', 0, 12, 'Approved')''')
+
+        # 4. SEED 1 PERMANENT TECHNICIAN FOR EACH CORE DEPARTMENT
+        depts = [
+            'IT & Network Services', 'Electrical Maintenance', 'Plumbing Maintenance', 
+            'Civil Maintenance', 'Air Conditioning & Ventilation Services', 
+            'Security & Surveillance', 'Housekeeping Services', 'Fire Safety Systems', 
+            'Water Supply & Sewage Management', 'Equipment Support'
+        ]
+        for i, dept in enumerate(depts):
+            short_name = dept.split()[0]
+            tech_name = f"Permanent {short_name} Tech"
+            tech_email = f"tech.{short_name.lower()}@campus.edu"
+            
+            c.execute('''INSERT OR IGNORE INTO users (name, email, password, role, account_status) 
+                         VALUES (?, ?, 'Tech123!', 'Campus Technician', 'Approved')''', (tech_name, tech_email))
+            c.execute('''INSERT OR IGNORE INTO technicians (name, department, is_on_shift, account_status) 
+                         VALUES (?, ?, 0, 'Approved')''', (tech_name, dept))
+
         conn.commit()
     except Exception as e:
         print("Init DB Error:", e)
     finally:
         conn.close()
+        
 def log_audit(user, action, target, db_conn=None):
     conn = db_conn or get_db_connection()
     try:
@@ -300,24 +280,26 @@ def register():
     try:
         requested_role = data.get('role')
         
-        # 1. NEW SECURITY GATE: Prevent unauthorized Admin/Tech accounts
-        if requested_role in ['Portal Admin', 'Campus Technician']:
-            return jsonify({
-                "status": "error", 
-                "message": f"Security Policy: You cannot self-register as a {requested_role}. Please contact the Master Admin for elevated access."
-            }), 403
+        # Security Gate: Admins and Technicians default to 'Pending'
+        status = 'Pending' if requested_role in ['Portal Admin', 'Campus Technician', 'Master Technician'] else 'Approved'
             
-        # 2. Proceed with normal registration for Campus Users
-        conn.execute('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)', 
-                     (data['name'], data['email'], data['password'], requested_role))
+        conn.execute('INSERT INTO users (name, email, password, role, account_status) VALUES (?, ?, ?, ?, ?)', 
+                     (data['name'], data['email'], data['password'], requested_role, status))
         
-        add_notification(data['name'], None, f"Welcome to InfraHub! Your {requested_role} account is set up and ready.", db_conn=conn)
+        if requested_role == 'Campus Technician':
+            dept = data.get('department', 'Pending Assignment')
+            conn.execute('INSERT INTO technicians (name, department, current_active_hours, max_shift_hours, is_on_shift, account_status) VALUES (?, ?, ?, ?, ?, ?)', 
+                         (data['name'], dept, 0, 8, 0, status))        
+        
+        msg = "Account created successfully! You can log in immediately." if status == 'Approved' else "Account registration submitted! Awaiting Master Admin approval before access is granted."
         conn.commit()
-        return jsonify({"status": "success", "message": "User registered successfully"})
+        return jsonify({"status": "success", "message": msg})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
     finally:
         conn.close()
+            
+    
 @app.route('/api/export/tickets', methods=['GET'])
 def export_tickets():
     conn = get_db_connection()
@@ -372,6 +354,10 @@ def login():
     try:
         user = conn.execute('SELECT * FROM users WHERE LOWER(TRIM(email)) = ? AND password = ?', (email, password)).fetchone()
         if user: 
+            # Reject authentication if 'Pending'
+            if user['account_status'] == 'Pending':
+                return jsonify({"status": "error", "message": "Access Denied: Your account is currently awaiting Master Admin validation."}), 403
+                
             add_notification(user['name'], None, f"Session Started: Welcome back, {user['name']}.", db_conn=conn)
             conn.commit()
             return jsonify({"status": "success", "name": user['name'], "role": user['role']}), 200
@@ -517,7 +503,8 @@ def get_tickets():
         role = request.args.get('role')
         user_name = request.args.get('name')
         
-        if role == 'Portal Admin':
+        # Master Technicians see everything!
+        if role in ['Portal Admin', 'Master Technician']:
             tickets = conn.execute("SELECT * FROM tickets WHERE status != 'Cancelled' ORDER BY created_at DESC").fetchall()
         elif role == 'Campus Technician':
             tickets = conn.execute("SELECT * FROM tickets WHERE assigned_technician = ? AND status != 'Cancelled' ORDER BY created_at DESC", (user_name,)).fetchall()
@@ -1702,6 +1689,45 @@ def ai_draft_update():
             return jsonify({"status": "success", "draft": fallback})
             
     return jsonify({"status": "error", "message": "AI offline."})
+
+# ==========================================
+# EXTRA: ADMIN HR COMMAND CONTROL ROUTES
+# ==========================================
+@app.route('/api/admin/pending-approvals', methods=['GET'])
+def get_pending_approvals():
+    conn = get_db_connection()
+    try:
+        users = conn.execute("SELECT name, email, role FROM users WHERE account_status = 'Pending'").fetchall()
+        leaves = conn.execute("SELECT id, tech_name, start_date, end_date, reason FROM leave_requests WHERE status = 'Pending'").fetchall()
+        return jsonify({"status": "success", "users": [dict(u) for u in users], "leaves": [dict(l) for l in leaves]})
+    except Exception as e: return jsonify({"status": "error", "message": str(e)})
+    finally: conn.close()
+
+@app.route('/api/admin/approve-user', methods=['POST'])
+def approve_user():
+    email = request.json.get('email')
+    conn = get_db_connection()
+    try:
+        conn.execute("UPDATE users SET account_status = 'Approved' WHERE email = ?", (email,))
+        conn.execute("UPDATE technicians SET account_status = 'Approved' WHERE name = (SELECT name FROM users WHERE email = ?)", (email,))
+        conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e: return jsonify({"status": "error"})
+    finally: conn.close()
+
+@app.route('/api/admin/process-leave', methods=['POST'])
+def process_leave():
+    req_id = request.json.get('id')
+    decision = request.json.get('status') 
+    conn = get_db_connection()
+    try:
+        conn.execute("UPDATE leave_requests SET status = ? WHERE id = ?", (decision, req_id))
+        leave = conn.execute("SELECT tech_name FROM leave_requests WHERE id = ?", (req_id,)).fetchone()
+        add_notification(leave['tech_name'], None, f"HR Department Update: Your leave request has been officially {decision.upper()}.", db_conn=conn)
+        conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e: return jsonify({"status": "error"})
+    finally: conn.close()
 
 # Force Gunicorn to run the DB setup and AI monitor on cloud startup!
 init_db()
