@@ -1692,7 +1692,7 @@ const technicianModules = [
             globalTicketsData = globalTicketsData.filter(t => t.ticket_id !== ticketId);
             
             if (loggedInRole === 'Portal Admin') renderAdminTickets('Queue');
-            else if (loggedInRole === 'Campus Technician') renderTechTickets('Pending');
+            else if (loggedInRole === 'Campus Technician' || loggedInRole === 'Master Technician') renderTechTickets('Pending');
             else renderUserTickets();
             
             try {
