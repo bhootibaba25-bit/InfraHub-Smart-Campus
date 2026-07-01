@@ -75,22 +75,15 @@ def notify_status_change(ticket_id, new_status, db_conn=None):
         if not db_conn and conn:
             conn.close()
 
+
 # ==========================================
-# 2. DATABASE ARCHITECTURE (TURSO CLOUD)
+# 2. DATABASE ARCHITECTURE (LOCAL SQLITE)
 # ==========================================
 def get_db_connection():
-    url = os.getenv("TURSO_DATABASE_URL")
-    token = os.getenv("TURSO_AUTH_TOKEN")
-    
-    if url and token:
-        import libsql_experimental as libsql
-        conn = libsql.connect(database=url, auth_token=token)
-    else:
-        conn = sqlite3.connect('campus_hub.db', timeout=20)
-        conn.execute('PRAGMA journal_mode=WAL;') 
+    conn = sqlite3.connect('campus_hub.db', timeout=20)
+    conn.execute('PRAGMA journal_mode=WAL;') 
     conn.row_factory = sqlite3.Row
     return conn
-
 def init_db():
     conn = get_db_connection()
     try:
