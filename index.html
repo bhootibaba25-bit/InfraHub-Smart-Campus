@@ -1360,23 +1360,23 @@ const technicianModules = [
                         <p class="ticket-meta"><i class="fa-solid fa-location-dot"></i> ${t.building} (${t.location}) &nbsp;|&nbsp; <i class="fa-regular fa-clock"></i> ${timeAgo(t.created_at)}</p>
                         
                         <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
                             <button onclick="runPreFlight('${t.ticket_id}', '${safeText(t.issue).replace(/'/g, "\\'")}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#a855f7; width:auto;"><i class="fa-solid fa-boxes"></i> AI Pre-Flight</button>
                             <button onclick="draftUpdate('${t.status}', '${safeText(t.issue).replace(/'/g, "\\'")}', '${t.user_name}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Update User</button>
                             <button onclick="summarizeThread('${safeText(t.issue).replace(/'/g, "\\'")}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
                             
-                           ${t.status === 'Pending' || t.status === 'Assigned' || t.status === 'In Progress' ? `<button onclick="transferTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#f59e0b; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-right-left"></i> Transfer Dept</button>` : ''}
-                     </div>
-                     <div id="ai-out-${t.ticket_id}" style="margin-top:12px; font-size:0.85rem; color:#10b981; font-weight:bold;"></div>
-
-                     ${t.status === 'In Progress' ? `
-                         <div style="margin-top: 15px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #38bdf8;">
-                             <label style="display:block; color:#cbd5e1; font-size:0.8rem; margin-bottom:8px;">Upload Resolution Photo (Required to Close):</label>
-                             <input type="file" id="res-photo-${t.ticket_id}" accept="image/*" style="width: 100%; color: white; font-size: 0.8rem; margin-bottom: 10px;">
-                             <button onclick="resolveTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#38bdf8; width:100%;"><i class="fa-solid fa-flag-checkered"></i> Submit Photo & Mark Resolved</button>
-                         </div>
-                     ` : ''}
-                 </div>
+                            ${t.status === 'Pending' || t.status === 'Assigned' ? `<button onclick="acceptTicket('${t.ticket_id}', '${t.priority}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#10b981; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-check"></i> Accept Job</button>` : ''}
+                            ${t.status === 'Pending' || t.status === 'Assigned' || t.status === 'In Progress' ? `<button onclick="transferTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#f59e0b; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-right-left"></i> Transfer Dept</button>` : ''}
+                        </div>
                         <div id="ai-out-${t.ticket_id}" style="margin-top:12px; font-size:0.85rem; color:#10b981; font-weight:bold;"></div>
+
+                        ${t.status === 'In Progress' ? `
+                            <div style="margin-top: 15px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #38bdf8;">
+                                <label style="display:block; color:#cbd5e1; font-size:0.8rem; margin-bottom:8px;">Upload Resolution Photo (Required to Close):</label>
+                                <input type="file" id="res-photo-${t.ticket_id}" accept="image/*" style="width: 100%; color: white; font-size: 0.8rem; margin-bottom: 10px;">
+                                <button onclick="resolveTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#38bdf8; width:100%;"><i class="fa-solid fa-flag-checkered"></i> Submit Photo & Mark Resolved</button>
+                            </div>
+                        ` : ''}
                     </div>
                 `;
             });
@@ -1386,7 +1386,6 @@ const technicianModules = [
         if (targetArea) targetArea.innerHTML = html;
         if(document.getElementById('ticket-search-bar')) filterTickets();
     };
-
   
    // AI ASSISTANT FUNCTIONS
     window.runPreFlight = async function(id, issue, btn) {
@@ -1492,12 +1491,10 @@ const technicianModules = [
 
                 if (t.status === 'Decline Requested' && loggedInRole === 'Portal Admin') {
                     html += `
-                        <div style="margin-top: 15px; background: rgba(248, 113, 113, 0.1); border: 1px solid #fca5a5; padding: 12px; border-radius: 8px;">
-                            <p style="color: #fca5a5; margin-bottom: 10px; font-size: 0.9rem;"><strong><i class="fa-solid fa-triangle-exclamation"></i> Technician requested to decline:</strong><br>"${safeText(t.decline_reason)}"</p>
-                            <div style="display: flex; gap: 10px;">
-                                <button type="button" class="primary-btn" style="flex:1; background: #38bdf8; padding: 8px; font-size: 0.85rem;" onclick="approveDecline('${t.ticket_id}')">Approve & Reassign</button>
-                                <button type="button" class="primary-btn" style="flex:1; background: transparent; border: 1px solid rgba(255,255,255,0.3); padding: 8px; font-size: 0.85rem;" onclick="rejectDecline('${t.ticket_id}')">Deny (Force Tech)</button>
-                            </div>
+                        <div style="margin-top: 15px; display: flex; gap: 10px;">
+                            <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
+                            <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(248, 113, 113, 0.2); color: #fca5a5; font-size: 0.85rem;" onclick="deleteRequest('${t.ticket_id}')"><i class="fa-solid fa-trash"></i> Delete</button>
+                        </div>
                         </div>
                     `;
                 }
