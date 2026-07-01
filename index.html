@@ -1455,8 +1455,9 @@ const technicianModules = [
 
         let filteredData = globalTicketsData.filter(t => {
             if (filterType === 'Queue') return t.status === 'Pending';
-            if (filterType === 'Active') return ['Assigned', 'In Progress', 'Escalated', 'Decline Requested','Awaiting Parts'].includes(t.status) && t.assigned_technician !== 'Unassigned';
-            if (filterType === 'Completed') return t.status === 'Resolved';
+            // THE FIX: Removed the strict 'Unassigned' rule so active tickets are never hidden from Admins
+            if (filterType === 'Active') return ['Assigned', 'In Progress', 'Escalated', 'Decline Requested', 'Awaiting Parts'].includes(t.status);
+            if (filterType === 'Completed') return ['Resolved', 'Closed'].includes(t.status);
             return false;
         });
 
