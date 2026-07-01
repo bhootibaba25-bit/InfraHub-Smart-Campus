@@ -77,17 +77,22 @@ def notify_status_change(ticket_id, new_status, db_conn=None):
 
 
 # ==========================================
-# 2. DATABASE ARCHITECTURE (LOCAL SQLITE)
+# 2. DATABASE ARCHITECTURE (PERMANENT CLOUD)
 # ==========================================
 def get_db_connection():
-    conn = sqlite3.connect('campus_hub.db', timeout=20)
-    conn.execute('PRAGMA journal_mode=WAL;') 
+    url = os.getenv("TURSO_DATABASE_URL")
+    token = os.getenv("TURSO_AUTH_TOKEN")
+    
+    # If the cloud keys are found, save permanently to the cloud!
+    if url and token:
+        import libsql
+        conn = libsql.connect(database=url, auth_token=token)
+    else:
+        conn = sqlite3.connect('campus_hub.db', timeout=20)
+        conn.execute('PRAGMA journal_mode=WAL;') 
+        
     conn.row_factory = sqlite3.Row
     return conn
-def init_db():
-    conn = get_db_connection()
-    try:
-        c = conn.cursor()
         
         # 1. CREATE CORE INFRASTRUCTURE TABLES
         c.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, custom_id TEXT, name TEXT, email TEXT UNIQUE, password TEXT, role TEXT, mobile_no TEXT, account_status TEXT DEFAULT 'Approved')''')
