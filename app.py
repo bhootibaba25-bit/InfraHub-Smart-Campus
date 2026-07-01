@@ -1078,7 +1078,7 @@ def monitoring_agent_loop():
             if conn:
                 conn.close() 
         
-        time.sleep(5)
+        time.sleep(60)
 
 @app.route('/')
 def index():
