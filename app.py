@@ -105,6 +105,8 @@ def init_db():
         except: pass
         try: c.execute("ALTER TABLE technicians ADD COLUMN account_status TEXT DEFAULT 'Approved'")
         except: pass
+        try: c.execute("ALTER TABLE tickets ADD COLUMN resolution_photo TEXT DEFAULT 'None'")
+        except: pass
 
         # 2. SEED INITIAL INVENTORY
         inv_check = c.execute("SELECT COUNT(*) FROM inventory").fetchone()[0]
@@ -577,27 +579,52 @@ def start_ticket(ticket_id):
 def resolve_ticket(ticket_id):
     conn = get_db_connection()
     try:
-        # The Fix: COALESCE forces it to fall back to the created_at time if started_at is ever missing, preventing "None" crashes!
+        # Grab the base64 photo data sent from the frontend
+        res_photo = request.json.get('resolution_photo', 'None')
+
         conn.execute('''
             UPDATE tickets 
             SET status = 'Resolved', 
+                resolution_photo = ?,
                 time_taken_mins = COALESCE(CAST(MAX(1, (julianday(CURRENT_TIMESTAMP) - julianday(COALESCE(started_at, created_at))) * 1440) AS INTEGER), 1),
                 last_updated_at = CURRENT_TIMESTAMP 
             WHERE ticket_id = ?
-        ''', (ticket_id,))
-# ↑↑↑ END OF FIX ↑↑↑
-        
-        # Notify user
+        ''', (res_photo, ticket_id))
+
         ticket = conn.execute("SELECT user_name, time_taken_mins FROM tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
         if ticket:
             add_notification(ticket['user_name'], None, f"Your request {ticket_id} has been resolved! It took our team {ticket['time_taken_mins']} minutes to fix.", db_conn=conn)
-            
+
         conn.commit()
         return jsonify({"status": "success"}), 200
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+        
+ @app.route('/api/tickets/<ticket_id>/transfer', methods=['POST'])
+ def transfer_ticket(ticket_id):
+    data = request.json
+    new_dept = data.get('new_department')
+    reason = data.get('reason')
+    tech_name = data.get('tech_name')
+    conn = get_db_connection()
+    try:
+        # Reassign ticket back to the queue for the new department
+        conn.execute("UPDATE tickets SET department = ?, assigned_technician = 'Unassigned', status = 'Pending', last_updated_at = CURRENT_TIMESTAMP WHERE ticket_id = ?", (new_dept, ticket_id))
+
+        # Notify Admin & User of the change
+        add_notification(None, 'Portal Admin', f"TICKET RE-ROUTED: {tech_name} transferred {ticket_id} to {new_dept}. Reason: {reason}", is_urgent=1, db_conn=conn)
+        ticket = conn.execute("SELECT user_name FROM tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
+        if ticket:
+            add_notification(ticket['user_name'], None, f"Update: Your ticket {ticket_id} was transferred to the {new_dept} department for specialized support.", db_conn=conn)
+
+        conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()   
 # ↑↑↑ END OF UPGRADED ROUTES ↑↑↑
 
 @app.route('/api/tickets/<ticket_id>/request-part', methods=['POST'])
