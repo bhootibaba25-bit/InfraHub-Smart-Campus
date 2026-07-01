@@ -503,6 +503,16 @@
     let globalTechs = [];
     let globalUsersData = [];
     let globalTicketsData = [];
+    window.ticketCache = {}; // Global cache to hold photo data without breaking HTML
+
+    window.fileToBase64 = function(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = error => reject(error);
+        });
+    };
 
     // ==========================================
     // UTILITY FUNCTIONS
@@ -1080,6 +1090,8 @@ const technicianModules = [
                 const data = await res.json();
                 if (data.status === 'success') { 
                     globalTicketsData = data.data; 
+                    window.ticketCache = {};
+                    globalTicketsData.forEach(t => window.ticketCache[t.ticket_id] = t);
                     if (moduleObj.id === 'agent-logs') renderAdminTickets('Queue');
                     else if (loggedInRole === 'Campus Technician' || loggedInRole === 'Master Technician') renderTechTickets('Pending');
                     else renderUserTickets();
@@ -1352,9 +1364,18 @@ const technicianModules = [
                             <button onclick="draftUpdate('${t.status}', '${safeText(t.issue).replace(/'/g, "\\'")}', '${t.user_name}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Update User</button>
                             <button onclick="summarizeThread('${safeText(t.issue).replace(/'/g, "\\'")}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
                             
-                            ${t.status === 'Pending' || t.status === 'Assigned' ? `<button onclick="acceptTicket('${t.ticket_id}', '${t.priority}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#10b981; width:auto;"><i class="fa-solid fa-check"></i> Accept Job</button>` : ''}
-                            ${t.status === 'In Progress' ? `<button onclick="resolveTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#38bdf8; width:auto;"><i class="fa-solid fa-flag-checkered"></i> Mark Resolved</button>` : ''}
-                        </div>
+                           ${t.status === 'Pending' || t.status === 'Assigned' || t.status === 'In Progress' ? `<button onclick="transferTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#f59e0b; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-right-left"></i> Transfer Dept</button>` : ''}
+                     </div>
+                     <div id="ai-out-${t.ticket_id}" style="margin-top:12px; font-size:0.85rem; color:#10b981; font-weight:bold;"></div>
+
+                     ${t.status === 'In Progress' ? `
+                         <div style="margin-top: 15px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #38bdf8;">
+                             <label style="display:block; color:#cbd5e1; font-size:0.8rem; margin-bottom:8px;">Upload Resolution Photo (Required to Close):</label>
+                             <input type="file" id="res-photo-${t.ticket_id}" accept="image/*" style="width: 100%; color: white; font-size: 0.8rem; margin-bottom: 10px;">
+                             <button onclick="resolveTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#38bdf8; width:100%;"><i class="fa-solid fa-flag-checkered"></i> Submit Photo & Mark Resolved</button>
+                         </div>
+                     ` : ''}
+                 </div>
                         <div id="ai-out-${t.ticket_id}" style="margin-top:12px; font-size:0.85rem; color:#10b981; font-weight:bold;"></div>
                     </div>
                 `;
@@ -1466,9 +1487,7 @@ const technicianModules = [
                         <span style="color: #38bdf8; font-weight: bold; margin-top: 8px; display: inline-block;"><i class="fa-solid fa-hard-hat"></i> Assigned To: ${t.assigned_technician || 'Pending'}</span></p>
                         
                         <div style="margin-top: 15px; display: flex; gap: 10px;">
-                            <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}', '${t.assigned_technician || ''}', '${safeText(t.issue).replace(/'/g, "\\'")}', '${t.status}', '${safeText(t.ai_analysis).replace(/'/g, "\\'")}', '${t.department}', '${t.created_at}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
-                            <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(248, 113, 113, 0.2); color: #fca5a5; font-size: 0.85rem;" onclick="deleteRequest('${t.ticket_id}')"><i class="fa-solid fa-trash"></i> Delete</button>
-                        </div>
+<button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>                        </div>
                 `;
 
                 if (t.status === 'Decline Requested' && loggedInRole === 'Portal Admin') {
@@ -1531,8 +1550,7 @@ const technicianModules = [
                         </div>
                     </div>
                     <div style="margin-top: 15px; display: flex; gap: 10px;">
-                        <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}', '${t.assigned_technician || ''}', '${safeText(t.issue).replace(/'/g, "\\'")}', '${t.status}', '${safeText(t.ai_analysis).replace(/'/g, "\\'")}', '${t.department}', '${t.created_at}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
-                        <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(248, 113, 113, 0.2); color: #fca5a5; font-size: 0.85rem;" onclick="deleteRequest('${t.ticket_id}')"><i class="fa-solid fa-trash"></i> Withdraw</button>
+<button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>                        <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(248, 113, 113, 0.2); color: #fca5a5; font-size: 0.85rem;" onclick="deleteRequest('${t.ticket_id}')"><i class="fa-solid fa-trash"></i> Withdraw</button>
                     </div>
                 </div>`;
             });
@@ -1626,6 +1644,13 @@ const technicianModules = [
         }
 
         try {
+            let photoData = "None";
+        const photoInput = document.getElementById('req-photo');
+        if (photoInput && photoInput.files.length > 0) {
+            try { photoData = await window.fileToBase64(photoInput.files[0]); } 
+            catch(e) { console.error("Error reading image", e); }
+        }
+
             const response = await fetch('/api/tickets', { 
                 method: 'POST', 
                 headers: { 'Content-Type': 'application/json' }, 
@@ -1730,19 +1755,26 @@ const technicianModules = [
     // ↑↑↑ END UPDATED ACCEPT TICKET LOGIC ↑↑↑
 
     async function resolveTicket(ticketId) {
-        const fileInput = document.getElementById(`res-photo-${ticketId}`);
-        if (!fileInput || fileInput.files.length === 0) { 
-            return alert("⚠️ Action Required: You must attach a photo of the resolved issue before closing this ticket."); 
-        }
-        if(confirm(`Mark ${ticketId} as fully Resolved?`)) {
-            try {
-                const response = await fetch(`/api/tickets/${ticketId}/resolve`, { method: 'PUT' });
-                const data = await response.json();
-                if (!response.ok || data.status !== 'success') return alert("❌ Failed to resolve.");
-                loadModule(technicianModules[0]);
-            } catch (e) { alert("❌ Network connection failed."); }
-        }
-    }
+     const fileInput = document.getElementById(`res-photo-${ticketId}`);
+     if (!fileInput || fileInput.files.length === 0) { 
+         return alert("⚠️ Action Required: You must attach a photo of the resolved issue before closing this ticket."); 
+     }
+     if(confirm(`Mark ${ticketId} as fully Resolved?`)) {
+         try {
+             // Convert the file to base64
+             const photoData = await window.fileToBase64(fileInput.files[0]);
+
+             const response = await fetch(`/api/tickets/${ticketId}/resolve`, { 
+                 method: 'PUT',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({ resolution_photo: photoData })
+             });
+             const data = await response.json();
+             if (!response.ok || data.status !== 'success') return alert("❌ Failed to resolve.");
+             loadModule(technicianModules[0]);
+         } catch (e) { alert("❌ Network connection failed."); }
+     }
+ }
 
     // Decline Modals
     let activeDeclineTicketId = null;
@@ -1800,26 +1832,74 @@ const technicianModules = [
         document.getElementById('universal-modal').classList.remove('hidden');
     }
 
-    function showTicketDetails(ticketId, technician, issue, status, aiAnalysis, department, createdAt) {
-        let createdDate = createdAt ? new Date(String(createdAt).replace(' ', 'T')) : new Date();
-        if (isNaN(createdDate)) createdDate = new Date();
-        let resolveDate = new Date(createdDate.getTime() + (48 * 60 * 60 * 1000)).toLocaleDateString();
-        
-        showModal(
-            `Detailed Ticket Overview`, 
-            `
-            <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px;">
-                <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-hashtag"></i> Request Number:</strong> <span style="color: white; font-family: monospace; font-size: 1.1rem;">${ticketId}</span></p>
-                <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-clipboard-question"></i> Issue Logged:</strong> ${issue}</p>
-                <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-building"></i> Routed Dept:</strong> ${department}</p>
-                <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-robot"></i> AI Diagnosis:</strong> <span style="font-style: italic;">"${aiAnalysis}"</span></p>
-                <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-hard-hat"></i> Assigned Technician:</strong> <span style="color: #38bdf8; font-weight: bold;">${technician || 'Pending Agent Dispatch'}</span></p>
-                <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-signal"></i> Current Status:</strong> <span style="background: rgba(255,255,255,0.2); padding: 3px 8px; border-radius: 4px;">${status}</span></p>
-                <p style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);"><strong><i class="fa-solid fa-calendar-check" style="color: #10b981;"></i> Expected Resolve Date:</strong> <span style="color: #10b981; font-weight: bold;">${resolveDate}</span></p>
-            </div>
-            `
-        );
-    }
+    function showTicketDetails(ticketId) {
+     const t = window.ticketCache[ticketId];
+     if(!t) return;
+
+     let createdDate = t.created_at ? new Date(String(t.created_at).replace(' ', 'T')) : new Date();
+     if (isNaN(createdDate)) createdDate = new Date();
+     let resolveDate = new Date(createdDate.getTime() + (48 * 60 * 60 * 1000)).toLocaleDateString();
+
+     // Generate Image HTML (Split Screen Feature)
+     let initPhotoHtml = (t.photo_attached && t.photo_attached !== 'None') ? `<img src="${t.photo_attached}" style="width:100%; max-height:200px; object-fit:cover; border-radius:8px;">` : `<div style="padding:40px 0; text-align:center; color:rgba(255,255,255,0.4); background:rgba(0,0,0,0.2); border-radius:8px;"><i class="fa-solid fa-image"></i> No photo</div>`;
+     let resPhotoHtml = (t.resolution_photo && t.resolution_photo !== 'None') ? `<img src="${t.resolution_photo}" style="width:100%; max-height:200px; object-fit:cover; border-radius:8px;">` : `<div style="padding:40px 0; text-align:center; color:rgba(255,255,255,0.4); background:rgba(0,0,0,0.2); border-radius:8px;"><i class="fa-solid fa-camera"></i> Awaiting completion image</div>`;
+
+     showModal(
+         `Detailed Ticket Overview: ${t.ticket_id}`, 
+         `
+         <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; max-height: 70vh; overflow-y: auto;">
+             <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-clipboard-question"></i> Issue Logged:</strong> ${safeText(t.issue)}</p>
+             <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-building"></i> Routed Dept:</strong> ${safeText(t.department)}</p>
+             <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-robot"></i> AI Diagnosis:</strong> <span style="font-style: italic;">"${safeText(t.ai_analysis)}"</span></p>
+             <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-hard-hat"></i> Assigned Technician:</strong> <span style="color: #38bdf8; font-weight: bold;">${safeText(t.assigned_technician) || 'Pending Agent Dispatch'}</span></p>
+             <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-signal"></i> Current Status:</strong> <span style="background: rgba(255,255,255,0.2); padding: 3px 8px; border-radius: 4px;">${safeText(t.status)}</span></p>
+
+             <div style="display:flex; gap:15px; margin-top:20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top:20px;">
+                 <div style="flex:1;">
+                     <h5 style="color:#9ca3af; margin-bottom:8px; font-size:0.8rem; text-transform:uppercase;">Initial Defect Proof</h5>
+                     ${initPhotoHtml}
+                 </div>
+                 <div style="flex:1;">
+                     <h5 style="color:#9ca3af; margin-bottom:8px; font-size:0.8rem; text-transform:uppercase;">Technician Resolution Picture</h5>
+                     ${resPhotoHtml}
+                 </div>
+             </div>
+         </div>
+         `
+     );
+ }
+
+ window.transferTicket = async function(ticketId) {
+     const depts = ['IT & Network Services', 'Electrical Maintenance', 'Plumbing Maintenance', 'Civil Maintenance', 'Air Conditioning & Ventilation Services', 'Security & Surveillance', 'Housekeeping Services', 'Fire Safety Systems', 'Water Supply & Sewage Management', 'Equipment Support'];
+     let deptPrompt = "Enter the NUMBER of the correct department:\n\n";
+     depts.forEach((d, i) => deptPrompt += `${i+1}. ${d}\n`);
+
+     const input = prompt(deptPrompt);
+     if (!input) return;
+     const deptIndex = parseInt(input) - 1;
+
+     if (isNaN(deptIndex) || deptIndex < 0 || deptIndex >= depts.length) {
+         return alert("Invalid selection.");
+     }
+     const newDept = depts[deptIndex];
+
+     const reason = prompt(`Reason for transferring to ${newDept}?`);
+     if (!reason) return;
+
+     try {
+         const res = await fetch(`/api/tickets/${ticketId}/transfer`, {
+             method: 'POST',
+             headers: {'Content-Type': 'application/json'},
+             body: JSON.stringify({new_department: newDept, reason: reason, tech_name: sessionStorage.getItem('hub_name')})
+         });
+         if(res.ok) {
+             alert("✅ Ticket successfully transferred.");
+             loadModule(technicianModules[0]); 
+         } else {
+             alert("❌ Failed to transfer ticket.");
+         }
+     } catch(e) { alert("Error transferring."); }
+ };
 
     async function viewTechTasks(techName) {
         showModal(`Task Dashboard: ${techName}`, `<p style="color:white;"><i class="fa-solid fa-spinner fa-spin"></i> Fetching live tasks for ${techName}...</p>`);
