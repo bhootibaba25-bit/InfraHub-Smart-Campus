@@ -1549,7 +1549,7 @@ const technicianModules = [
                     </div>
                     <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
                         <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
-                        ${(t.status === 'Pending' || t.status === 'Submitted') ? `<button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(248, 113, 113, 0.2); color: #fca5a5; font-size: 0.85rem;" onclick="deleteRequest('${t.ticket_id}')"><i class="fa-solid fa-trash"></i> Withdraw</button>` : ''}
+                        ${(t.status === 'Pending' || t.status === 'Submitted' || t.status === 'Assigned') ? `<button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(248, 113, 113, 0.2); color: #fca5a5; font-size: 0.85rem;" onclick="deleteRequest('${t.ticket_id}')"><i class="fa-solid fa-trash"></i> Withdraw</button>` : ''}
                     </div>
                 </div>`;
             });
