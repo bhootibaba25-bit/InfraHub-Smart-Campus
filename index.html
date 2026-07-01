@@ -560,10 +560,28 @@
     // MODULE CONFIGURATIONS
     // ==========================================
     const adminModules = [
+
+        
       // ↓↓↓ SLEEK GLASSMORPHISM AI COMMAND CENTER ↓↓↓
     // ↓↓↓ AI COMMAND CENTER WITH HEATMAP ↓↓↓
     // ↓↓↓ TRIPLE-INTEGRATION SYSTEM CONFIGURATION ↓↓↓
    // ↓↓↓ CLEAN AI COMMAND CENTER (NO RLHF CLUTTER) ↓↓↓
+        { 
+            id: 'hr-control-deck', icon: 'fa-user-shield', name: 'HR & Approvals', 
+            content: `
+                <h3 style="color: white; margin-bottom: 20px;"><i class="fa-solid fa-user-lock"></i> Gatekeeper Authorization Panel</h3>
+                <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                    <div class="module-card" style="flex: 1; min-width: 320px; border-top: 4px solid #38bdf8;">
+                        <h4 style="color: white; margin-bottom: 15px;"><i class="fa-solid fa-users"></i> Pending System Access Controls</h4>
+                        <div id="admin-pending-users"><p style="color:rgba(255,255,255,0.6);"><i class="fa-solid fa-spinner fa-spin"></i> Analyzing system requests...</p></div>
+                    </div>
+                    <div class="module-card" style="flex: 1; min-width: 320px; border-top: 4px solid #fbbf24;">
+                        <h4 style="color: white; margin-bottom: 15px;"><i class="fa-solid fa-calendar-day"></i> Field Leave Requests</h4>
+                        <div id="admin-pending-leaves"><p style="color:rgba(255,255,255,0.6);"><i class="fa-solid fa-spinner fa-spin"></i> Retrieving timesheet parameters...</p></div>
+                    </div>
+                </div>
+            ` 
+        },
     { 
         id: 'ai-feed', icon: 'fa-robot', name: 'AI Command Center', 
         content: `
@@ -998,7 +1016,7 @@ const technicianModules = [
         sidebarNav.innerHTML = '';
         let modulesToLoad = [];
         if (loggedInRole === 'Portal Admin') modulesToLoad = adminModules;
-        else if (loggedInRole === 'Campus Technician') modulesToLoad = technicianModules;
+        else if (loggedInRole === 'Campus Technician' || loggedInRole === 'Master Technician') modulesToLoad = technicianModules;
         else modulesToLoad = userModules; 
         
         if (!modulesToLoad || modulesToLoad.length === 0) return;
@@ -1027,6 +1045,7 @@ const technicianModules = [
         if (moduleObj.id === 'roster') targetArea = document.getElementById('roster-table-area');
         else if (moduleObj.id === 'agent-logs') targetArea = document.getElementById('admin-tickets-area');
         else if (moduleObj.id === 'user-directory') targetArea = document.getElementById('user-directory-area');
+        else if (moduleObj.id === 'hr-control-deck') { window.renderAdminApprovalsView(); return; }
 
         fetchNotifications();
         if (moduleObj.id === 'ai-feed') {
@@ -2710,7 +2729,62 @@ const technicianModules = [
     // ↑↑↑ END SAFETY CONTROLLERS ↑↑↑
 
 
+window.renderAdminApprovalsView = async function() {
+        const userContainer = document.getElementById('admin-pending-users');
+        const leaveContainer = document.getElementById('admin-pending-leaves');
+        if(!userContainer || !leaveContainer) return;
+        
+        try {
+            const res = await fetch('/api/admin/pending-approvals');
+            const data = await res.json();
+            
+            if(data.status === 'success') {
+                if(data.users.length === 0) {
+                    userContainer.innerHTML = `<p style="color:#10b981; font-weight:bold;"><i class="fa-solid fa-circle-check"></i> System registry cleared.</p>`;
+                } else {
+                    userContainer.innerHTML = data.users.map(u => `
+                        <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(255,255,255,0.1);">
+                            <div>
+                                <strong style="color: white; font-size:1.05rem;">${safeText(u.name)}</strong><br>
+                                <span style="color: #38bdf8; font-size:0.85rem; font-weight:bold;">${u.role}</span> &nbsp;|&nbsp; <span style="color:#9ca3af; font-size:0.85rem;">${u.email}</span>
+                            </div>
+                            <button onclick="executeAdminUserApproval('${u.email}')" class="primary-btn" style="width: auto; padding: 8px 18px; background: #10b981; font-size:0.85rem;"><i class="fa-solid fa-user-plus"></i> Grant Access</button>
+                        </div>
+                    `).join('');
+                }
+                
+                if(data.leaves.length === 0) {
+                    leaveContainer.innerHTML = `<p style="color:#10b981; font-weight:bold;"><i class="fa-solid fa-circle-check"></i> Operations schedule clear.</p>`;
+                } else {
+                    leaveContainer.innerHTML = data.leaves.map(l => `
+                        <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; margin-bottom: 12px; border-left: 4px solid #fbbf24; border-right:1px solid rgba(255,255,255,0.1); border-top:1px solid rgba(255,255,255,0.1); border-bottom:1px solid rgba(255,255,255,0.1);">
+                            <div style="margin-bottom: 12px;">
+                                <strong style="color: white; font-size:1.05rem;">${safeText(l.tech_name)}</strong><br>
+                                <span style="color: #fbbf24; font-size:0.85rem; font-weight:bold;"><i class="fa-regular fa-clock"></i> ${l.start_date} to ${l.end_date}</span><br>
+                                <p style="color: #cbd5e1; font-size: 0.85rem; margin-top: 6px; font-style: italic;">"${safeText(l.reason)}"</p>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <button onclick="executeLeaveResolution(${l.id}, 'Approved')" class="primary-btn" style="flex: 1; padding: 10px; background: #10b981; font-size:0.85rem;"><i class="fa-solid fa-check"></i> Authorize</button>
+                                <button onclick="executeLeaveResolution(${l.id}, 'Denied')" class="primary-btn" style="flex: 1; padding: 10px; background: transparent; border: 1px solid #ef4444; color: #ef4444; font-size:0.85rem;"><i class="fa-solid fa-xmark"></i> Decline</button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            }
+        } catch (e) {}
+    };
 
+    window.executeAdminUserApproval = async function(email) {
+        if(!confirm("Approve this user's account?")) return;
+        await fetch('/api/admin/approve-user', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: email}) });
+        window.renderAdminApprovalsView();
+    };
+
+    window.executeLeaveResolution = async function(id, status) {
+        if(!confirm(`Mark this leave request as ${status}?`)) return;
+        await fetch('/api/admin/process-leave', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id, status: status}) });
+        window.renderAdminApprovalsView();
+    };
 </script>
 </body>
 </html>
