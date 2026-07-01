@@ -533,7 +533,12 @@ def accept(ticket_id):
                 return jsonify({"status": "error", "message": "Action Denied: You cannot accept tasks while Off Duty. Please Clock In first."}), 403
 
         ticket = conn.execute('SELECT * FROM tickets WHERE ticket_id = ?', (ticket_id,)).fetchone()
-        conn.execute("UPDATE tickets SET status = 'In Progress', started_at = NOW() WHERE ticket_id = ?", (ticket_id,))
+        
+        # THE FIX: We must update BOTH the status and the assigned_technician column!
+        if tech_name:
+            conn.execute("UPDATE tickets SET status = 'In Progress', assigned_technician = ?, started_at = NOW() WHERE ticket_id = ?", (tech_name, ticket_id))
+        else:
+            conn.execute("UPDATE tickets SET status = 'In Progress', started_at = NOW() WHERE ticket_id = ?", (ticket_id,))
         
         if ticket: 
             add_notification(ticket['user_name'], None, f"IN PROGRESS: Technician has started working on {ticket_id}.", db_conn=conn)
