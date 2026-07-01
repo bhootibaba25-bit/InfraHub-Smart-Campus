@@ -1,5 +1,4 @@
 import os
-import sqlite3
 import json
 import threading
 import time
@@ -7,6 +6,8 @@ import random
 import csv
 from io import StringIO
 from datetime import datetime
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from flask import Flask, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -20,7 +21,6 @@ from flask_mail import Mail, Message
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 app = Flask(__name__)
-
 
 # Serve the main HTML page
 @app.route('/')
@@ -73,45 +73,71 @@ def notify_status_change(ticket_id, new_status, db_conn=None):
             conn.close()
 
 # ==========================================
-# 2. DATABASE ARCHITECTURE (PERMANENT CLOUD)
+# 2. DATABASE ARCHITECTURE (NEON POSTGRES CLOUD)
 # ==========================================
-def get_db_connection():
-    url = os.getenv("TURSO_DATABASE_URL")
-    token = os.getenv("TURSO_AUTH_TOKEN")
-    
-    if url and token:
-        import libsql
-        conn = libsql.connect(database=url, auth_token=token)
-    else:
-        conn = sqlite3.connect('campus_hub.db', timeout=20)
-        conn.execute('PRAGMA journal_mode=WAL;') 
+class DBConnection:
+    """A brilliant custom wrapper that translates SQLite commands into PostgreSQL automatically!"""
+    def __init__(self):
+        db_url = os.getenv("DATABASE_URL")
+        if not db_url:
+            raise ValueError("DATABASE_URL is missing! Add your Neon Postgres URL to Render.")
+        self.conn = psycopg2.connect(db_url)
+        self.conn.autocommit = True # Prevents transaction crashes
+
+    def execute(self, query, params=()):
+        # Auto-Translate SQLite syntax to Postgres syntax
+        pg_query = query.replace('?', '%s')
+        pg_query = pg_query.replace("datetime('now', '-24 hours')", "NOW() - INTERVAL '24 hours'")
+        pg_query = pg_query.replace("date('now', 'localtime')", "CURRENT_DATE")
+        pg_query = pg_query.replace("CURRENT_TIMESTAMP", "NOW()")
         
-    conn.row_factory = sqlite3.Row
-    return conn
+        # Translate the complex time math for resolving tickets
+        if "julianday(" in pg_query:
+            pg_query = """
+                UPDATE tickets 
+                SET status = 'Resolved', 
+                    resolution_photo = %s,
+                    time_taken_mins = COALESCE(CAST(EXTRACT(EPOCH FROM (NOW() - COALESCE(started_at, created_at))) / 60 AS INTEGER), 1),
+                    last_updated_at = NOW() 
+                WHERE ticket_id = %s
+            """
+            
+        cursor = self.conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(pg_query, params)
+        return cursor
+
+    def executemany(self, query, param_list):
+        pg_query = query.replace('?', '%s')
+        cursor = self.conn.cursor()
+        cursor.executemany(pg_query, param_list)
+        return cursor
+
+    def commit(self):
+        pass # Handled safely by autocommit in Postgres
+
+    def close(self):
+        self.conn.close()
+
+def get_db_connection():
+    return DBConnection()
 
 def init_db():
     conn = get_db_connection()
     try:
-        c = conn.cursor()
-        
-        c.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, custom_id TEXT, name TEXT, email TEXT UNIQUE, password TEXT, role TEXT, mobile_no TEXT, account_status TEXT DEFAULT 'Approved')''')
-        c.execute('''CREATE TABLE IF NOT EXISTS technicians (technician_id INTEGER PRIMARY KEY AUTOINCREMENT, custom_id TEXT, name TEXT, department TEXT, current_active_hours INTEGER DEFAULT 0, max_shift_hours INTEGER DEFAULT 8, is_on_shift BOOLEAN DEFAULT 0, mobile_no TEXT, points INTEGER DEFAULT 0, on_break INTEGER DEFAULT 0, overtime_opt_in INTEGER DEFAULT 0, badges_unlocked TEXT DEFAULT 'Welcome Aboard', current_building TEXT DEFAULT 'Main Building', account_status TEXT DEFAULT 'Approved')''')
-        c.execute('''CREATE TABLE IF NOT EXISTS tickets (ticket_id TEXT PRIMARY KEY, user_name TEXT, role TEXT, department TEXT, building TEXT, location TEXT, issue TEXT, photo_attached TEXT, priority TEXT, ai_analysis TEXT, assigned_technician TEXT DEFAULT 'Unassigned', status TEXT DEFAULT 'Pending', decline_reason TEXT, read_status INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, qa_sent INTEGER DEFAULT 0, started_at TIMESTAMP, time_taken_mins INTEGER DEFAULT 0, user_rating INTEGER DEFAULT 0, user_feedback TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS system_notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, target_user TEXT, target_role TEXT, message TEXT, is_urgent INTEGER DEFAULT 0, is_read INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS inventory (id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT, category TEXT, stock_level INTEGER DEFAULT 0, reorder_threshold INTEGER DEFAULT 5, unit_price REAL)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS part_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id TEXT, tech_name TEXT, part_name TEXT, status TEXT DEFAULT 'Pending', requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, action TEXT, target TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS shift_trades (id INTEGER PRIMARY KEY AUTOINCREMENT, requester TEXT, department TEXT, target_date TEXT, status TEXT DEFAULT 'Pending')''')
-        c.execute('''CREATE TABLE IF NOT EXISTS leave_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, tech_name TEXT, start_date TEXT, end_date TEXT, reason TEXT, status TEXT DEFAULT 'Pending')''')
-        
-        try: c.execute("ALTER TABLE users ADD COLUMN account_status TEXT DEFAULT 'Approved'")
-        except: pass
-        try: c.execute("ALTER TABLE technicians ADD COLUMN account_status TEXT DEFAULT 'Approved'")
-        except: pass
-        try: c.execute("ALTER TABLE tickets ADD COLUMN resolution_photo TEXT DEFAULT 'None'")
-        except: pass
+        # 1. CREATE CORE INFRASTRUCTURE TABLES (Translated for Postgres)
+        conn.execute('''CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, custom_id TEXT, name TEXT, email TEXT UNIQUE, password TEXT, role TEXT, mobile_no TEXT, account_status TEXT DEFAULT 'Approved')''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS technicians (technician_id SERIAL PRIMARY KEY, custom_id TEXT, name TEXT, department TEXT, current_active_hours INTEGER DEFAULT 0, max_shift_hours INTEGER DEFAULT 8, is_on_shift INTEGER DEFAULT 0, mobile_no TEXT, points INTEGER DEFAULT 0, on_break INTEGER DEFAULT 0, overtime_opt_in INTEGER DEFAULT 0, badges_unlocked TEXT DEFAULT 'Welcome Aboard', current_building TEXT DEFAULT 'Main Building', account_status TEXT DEFAULT 'Approved')''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS tickets (ticket_id TEXT PRIMARY KEY, user_name TEXT, role TEXT, department TEXT, building TEXT, location TEXT, issue TEXT, photo_attached TEXT, priority TEXT, ai_analysis TEXT, assigned_technician TEXT DEFAULT 'Unassigned', status TEXT DEFAULT 'Pending', decline_reason TEXT, read_status INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT NOW(), last_updated_at TIMESTAMP DEFAULT NOW(), qa_sent INTEGER DEFAULT 0, started_at TIMESTAMP, time_taken_mins INTEGER DEFAULT 0, user_rating INTEGER DEFAULT 0, user_feedback TEXT, resolution_photo TEXT DEFAULT 'None')''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS system_notifications (id SERIAL PRIMARY KEY, target_user TEXT, target_role TEXT, message TEXT, is_urgent INTEGER DEFAULT 0, is_read INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT NOW())''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS inventory (id SERIAL PRIMARY KEY, item_name TEXT, category TEXT, stock_level INTEGER DEFAULT 0, reorder_threshold INTEGER DEFAULT 5, unit_price NUMERIC)''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS part_requests (id SERIAL PRIMARY KEY, ticket_id TEXT, tech_name TEXT, part_name TEXT, status TEXT DEFAULT 'Pending', requested_at TIMESTAMP DEFAULT NOW())''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS audit_logs (id SERIAL PRIMARY KEY, "user" TEXT, action TEXT, target TEXT, created_at TIMESTAMP DEFAULT NOW())''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS shift_trades (id SERIAL PRIMARY KEY, requester TEXT, department TEXT, target_date TEXT, status TEXT DEFAULT 'Pending')''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS leave_requests (id SERIAL PRIMARY KEY, tech_name TEXT, start_date TEXT, end_date TEXT, reason TEXT, status TEXT DEFAULT 'Pending')''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS tool_checkouts (id SERIAL PRIMARY KEY, tool_name TEXT, tech_name TEXT, checkout_date TIMESTAMP DEFAULT NOW(), status TEXT DEFAULT 'Borrowed')''')
 
-        inv_check = c.execute("SELECT COUNT(*) FROM inventory").fetchone()[0]
+        # 2. SEED INITIAL INVENTORY
+        inv_check = conn.execute("SELECT COUNT(*) as count FROM inventory").fetchone()['count']
         if inv_check == 0:
             seed_items = [
                 ('Heavy Duty PVC Pipe (1 inch)', 'Plumbing Maintenance', 12, 5, 450.00),
@@ -127,37 +153,39 @@ def init_db():
                 ('Crompton Submersible Pump (1HP)', 'Water Supply & Sewage Management', 1, 1, 8500.00),
                 ('Fluke Digital Multimeter', 'Equipment Support', 3, 2, 3400.00)
             ]
-            c.executemany("INSERT INTO inventory (item_name, category, stock_level, reorder_threshold, unit_price) VALUES (?, ?, ?, ?, ?)", seed_items)
+            conn.executemany("INSERT INTO inventory (item_name, category, stock_level, reorder_threshold, unit_price) VALUES (?, ?, ?, ?, ?)", seed_items)
 
-        c.execute('''INSERT OR IGNORE INTO users (name, email, password, role, account_status) 
-                     VALUES ('Master Admin', 'admin@campus.edu', 'Admin123!', 'Portal Admin', 'Approved')''')
-        c.execute('''INSERT OR IGNORE INTO users (name, email, password, role, account_status) 
-                     VALUES ('Campus User', 'user@campus.edu', 'User123!', 'Campus Staff', 'Approved')''')
-        c.execute('''INSERT OR IGNORE INTO users (name, email, password, role, account_status) 
-                     VALUES ('Master Tech Aarav', 'tech@campus.edu', 'Tech123!', 'Master Technician', 'Approved')''')
-        c.execute('''INSERT OR IGNORE INTO technicians (name, department, is_on_shift, max_shift_hours, account_status) 
-                     VALUES ('Master Tech Aarav', 'All', 0, 12, 'Approved')''')
+        # 3. SEED PERMANENT SYSTEM MANAGEMENT ACCOUNTS
+        admin_check = conn.execute("SELECT COUNT(*) as count FROM users WHERE email = 'admin@campus.edu'").fetchone()['count']
+        if admin_check == 0:
+            conn.execute('''INSERT INTO users (name, email, password, role, account_status) 
+                         VALUES ('Master Admin', 'admin@campus.edu', 'Admin123!', 'Portal Admin', 'Approved')''')
+            conn.execute('''INSERT INTO users (name, email, password, role, account_status) 
+                         VALUES ('Campus User', 'user@campus.edu', 'User123!', 'Campus Staff', 'Approved')''')
+            conn.execute('''INSERT INTO users (name, email, password, role, account_status) 
+                         VALUES ('Master Tech Aarav', 'tech@campus.edu', 'Tech123!', 'Master Technician', 'Approved')''')
+            conn.execute('''INSERT INTO technicians (name, department, is_on_shift, max_shift_hours, account_status) 
+                         VALUES ('Master Tech Aarav', 'All', 0, 12, 'Approved')''')
 
-        tech_roster = [
-            ('IT & Network Services', 'Rohan Desai', 'rohan.it@campus.edu'),
-            ('Electrical Maintenance', 'Vikram Singh', 'vikram.elec@campus.edu'),
-            ('Plumbing Maintenance', 'Arjun Patel', 'arjun.plumb@campus.edu'),
-            ('Civil Maintenance', 'Neha Kulkarni', 'neha.civil@campus.edu'),
-            ('Air Conditioning & Ventilation Services', 'Aditya Joshi', 'aditya.hvac@campus.edu'),
-            ('Security & Surveillance', 'Karan Verma', 'karan.sec@campus.edu'),
-            ('Housekeeping Services', 'Pooja Nair', 'pooja.clean@campus.edu'),
-            ('Fire Safety Systems', 'Rahul Menon', 'rahul.fire@campus.edu'),
-            ('Water Supply & Sewage Management', 'Sanjay Gupta', 'sanjay.water@campus.edu'),
-            ('Equipment Support', 'Priya Rao', 'priya.equip@campus.edu')
-        ]
-        
-        for dept, tech_name, tech_email in tech_roster:
-            c.execute('''INSERT OR IGNORE INTO users (name, email, password, role, account_status) 
-                         VALUES (?, ?, 'Tech123!', 'Campus Technician', 'Approved')''', (tech_name, tech_email))
-            c.execute('''INSERT OR IGNORE INTO technicians (name, department, is_on_shift, account_status) 
-                         VALUES (?, ?, 0, 'Approved')''', (tech_name, dept))
+            tech_roster = [
+                ('IT & Network Services', 'Rohan Desai', 'rohan.it@campus.edu'),
+                ('Electrical Maintenance', 'Vikram Singh', 'vikram.elec@campus.edu'),
+                ('Plumbing Maintenance', 'Arjun Patel', 'arjun.plumb@campus.edu'),
+                ('Civil Maintenance', 'Neha Kulkarni', 'neha.civil@campus.edu'),
+                ('Air Conditioning & Ventilation Services', 'Aditya Joshi', 'aditya.hvac@campus.edu'),
+                ('Security & Surveillance', 'Karan Verma', 'karan.sec@campus.edu'),
+                ('Housekeeping Services', 'Pooja Nair', 'pooja.clean@campus.edu'),
+                ('Fire Safety Systems', 'Rahul Menon', 'rahul.fire@campus.edu'),
+                ('Water Supply & Sewage Management', 'Sanjay Gupta', 'sanjay.water@campus.edu'),
+                ('Equipment Support', 'Priya Rao', 'priya.equip@campus.edu')
+            ]
+            
+            for dept, tech_name, tech_email in tech_roster:
+                conn.execute('''INSERT INTO users (name, email, password, role, account_status) 
+                             VALUES (?, ?, 'Tech123!', 'Campus Technician', 'Approved')''', (tech_name, tech_email))
+                conn.execute('''INSERT INTO technicians (name, department, is_on_shift, account_status) 
+                             VALUES (?, ?, 0, 'Approved')''', (tech_name, dept))
 
-        conn.commit()
     except Exception as e:
         print("Init DB Error:", e)
     finally:
@@ -166,9 +194,7 @@ def init_db():
 def log_audit(user, action, target, db_conn=None):
     conn = db_conn or get_db_connection()
     try:
-        conn.execute('INSERT INTO audit_logs (user, action, target) VALUES (?, ?, ?)', (user, action, target))
-        if not db_conn: 
-            conn.commit()
+        conn.execute('INSERT INTO audit_logs ("user", action, target) VALUES (?, ?, ?)', (user, action, target))
     except Exception as e:
         print("Audit Log Error:", e)
     finally:
@@ -179,8 +205,6 @@ def add_notification(target_user, target_role, message, is_urgent=0, db_conn=Non
     conn = db_conn or get_db_connection()
     try:
         conn.execute('INSERT INTO system_notifications (target_user, target_role, message, is_urgent) VALUES (?, ?, ?, ?)', (target_user, target_role, message, is_urgent))
-        if not db_conn:
-            conn.commit()
     except Exception as e:
         print("Notification Error:", e)
     finally:
@@ -224,8 +248,6 @@ def tool_assign_ticket(ticket_id, technician_name, estimated_task_hours=2, db_co
         else:
             conn.execute("UPDATE tickets SET assigned_technician = ?, status = 'Pending' WHERE ticket_id = ?", (technician_name, ticket_id))
             
-        if not db_conn:
-            conn.commit()
         return {"status": "success"}
     finally:
         if not db_conn and conn:
@@ -275,7 +297,7 @@ def register():
         requested_role = data.get('role')
         status = 'Pending' if requested_role in ['Portal Admin', 'Campus Technician', 'Master Technician'] else 'Approved'
             
-        conn.execute('INSERT INTO users (name, email, password, role, account_status) VALUES (?, ?, ?, ?, ?)', 
+        conn.execute('INSERT INTO users (name, email, password, role, account_status) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING', 
                      (data['name'], data['email'], data['password'], requested_role, status))
         
         if requested_role == 'Campus Technician':
@@ -284,7 +306,6 @@ def register():
                          (data['name'], dept, 0, 8, 0, status))        
         
         msg = "Account created successfully! You can log in immediately." if status == 'Approved' else "Account registration submitted! Awaiting Master Admin approval before access is granted."
-        conn.commit()
         return jsonify({"status": "success", "message": msg})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
@@ -346,7 +367,6 @@ def login():
                 return jsonify({"status": "error", "message": "Access Denied: Your account is currently awaiting Master Admin validation."}), 403
                 
             add_notification(user['name'], None, f"Session Started: Welcome back, {user['name']}.", db_conn=conn)
-            conn.commit()
             return jsonify({"status": "success", "name": user['name'], "role": user['role']}), 200
         else:
             return jsonify({"status": "error", "message": "Invalid email or password."}), 401
@@ -388,7 +408,6 @@ def reset_password():
             user = conn.execute('SELECT * FROM users WHERE LOWER(email) = ?', (email,)).fetchone()
             if user: 
                 add_notification(user['name'], None, "Security Alert: Your password was recently changed.", db_conn=conn)
-            conn.commit()
             del otp_store[email]
             return jsonify({"status": "success", "message": "Password reset successfully."})
         except Exception as e: 
@@ -468,7 +487,6 @@ def create_ticket():
         else:
             add_notification(None, 'Portal Admin', f"WARNING: {data['ticket_id']} could not be assigned. No techs in {ai_decision['department']}!", is_urgent=1, db_conn=conn)
             
-        conn.commit() 
         return jsonify({"status": "success"}), 201
         
     except Exception as e: 
@@ -502,7 +520,6 @@ def delete_ticket(ticket_id):
     try:
         conn.execute("UPDATE tickets SET status = 'Cancelled' WHERE ticket_id = ?", (ticket_id,))
         log_audit(request.args.get('name', 'Admin'), 'DELETED_TICKET', ticket_id, db_conn=conn)
-        conn.commit()
         return jsonify({"status": "success"}), 200
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -521,13 +538,12 @@ def accept(ticket_id):
                 return jsonify({"status": "error", "message": "Action Denied: You cannot accept tasks while Off Duty. Please Clock In first."}), 403
 
         ticket = conn.execute('SELECT * FROM tickets WHERE ticket_id = ?', (ticket_id,)).fetchone()
-        conn.execute("UPDATE tickets SET status = 'In Progress', started_at = CURRENT_TIMESTAMP WHERE ticket_id = ?", (ticket_id,))
+        conn.execute("UPDATE tickets SET status = 'In Progress', started_at = NOW() WHERE ticket_id = ?", (ticket_id,))
         
         if ticket: 
             add_notification(ticket['user_name'], None, f"IN PROGRESS: Technician has started working on {ticket_id}.", db_conn=conn)
             notify_status_change(ticket_id, 'In Progress', db_conn=conn)
         
-        conn.commit()
         return jsonify({"status": "success"}), 200
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -538,8 +554,7 @@ def accept(ticket_id):
 def start_ticket(ticket_id):
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE tickets SET status = 'In Progress', started_at = CURRENT_TIMESTAMP, last_updated_at = CURRENT_TIMESTAMP WHERE ticket_id = ?", (ticket_id,))
-        conn.commit()
+        conn.execute("UPDATE tickets SET status = 'In Progress', started_at = NOW(), last_updated_at = NOW() WHERE ticket_id = ?", (ticket_id,))
         return jsonify({"status": "success"}), 200
     except Exception as e: return jsonify({"status": "error", "message": str(e)}), 500
     finally: conn.close()
@@ -549,12 +564,12 @@ def resolve_ticket(ticket_id):
     conn = get_db_connection()
     try:
         res_photo = request.json.get('resolution_photo', 'None')
-
+        # DB wrapper automatically translates the SQLite julianday math here!
         conn.execute('''
             UPDATE tickets 
             SET status = 'Resolved', 
                 resolution_photo = ?,
-                time_taken_mins = COALESCE(CAST(MAX(1, (julianday(CURRENT_TIMESTAMP) - julianday(COALESCE(started_at, created_at))) * 1440) AS INTEGER), 1),
+                time_taken_mins = COALESCE(CAST(julianday(CURRENT_TIMESTAMP) AS INTEGER), 1),
                 last_updated_at = CURRENT_TIMESTAMP 
             WHERE ticket_id = ?
         ''', (res_photo, ticket_id))
@@ -563,7 +578,6 @@ def resolve_ticket(ticket_id):
         if ticket:
             add_notification(ticket['user_name'], None, f"Your request {ticket_id} has been resolved! It took our team {ticket['time_taken_mins']} minutes to fix.", db_conn=conn)
 
-        conn.commit()
         return jsonify({"status": "success"}), 200
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -578,14 +592,13 @@ def transfer_ticket(ticket_id):
     tech_name = data.get('tech_name')
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE tickets SET department = ?, assigned_technician = 'Unassigned', status = 'Pending', last_updated_at = CURRENT_TIMESTAMP WHERE ticket_id = ?", (new_dept, ticket_id))
+        conn.execute("UPDATE tickets SET department = ?, assigned_technician = 'Unassigned', status = 'Pending', last_updated_at = NOW() WHERE ticket_id = ?", (new_dept, ticket_id))
 
         add_notification(None, 'Portal Admin', f"TICKET RE-ROUTED: {tech_name} transferred {ticket_id} to {new_dept}. Reason: {reason}", is_urgent=1, db_conn=conn)
         ticket = conn.execute("SELECT user_name FROM tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
         if ticket:
             add_notification(ticket['user_name'], None, f"Update: Your ticket {ticket_id} was transferred to the {new_dept} department for specialized support.", db_conn=conn)
 
-        conn.commit()
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -600,13 +613,12 @@ def request_part(ticket_id):
         part_name = data.get('part_name')
         tech_name = data.get('tech_name')
         
-        conn.execute("UPDATE tickets SET status = 'Awaiting Parts', last_updated_at = CURRENT_TIMESTAMP WHERE ticket_id = ?", (ticket_id,))
+        conn.execute("UPDATE tickets SET status = 'Awaiting Parts', last_updated_at = NOW() WHERE ticket_id = ?", (ticket_id,))
         conn.execute("INSERT INTO part_requests (ticket_id, tech_name, part_name) VALUES (?, ?, ?)", (ticket_id, tech_name, part_name))
         
         add_notification(None, 'Portal Admin', f"📦 INVENTORY ALERT: {tech_name} requested '{part_name}' for ticket {ticket_id}.", is_urgent=1, db_conn=conn)
         add_notification(tech_name, None, f"Part Requested: '{part_name}'. Admin has been notified.", db_conn=conn)
         
-        conn.commit()
         return jsonify({"status": "success"}), 200
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -624,7 +636,6 @@ def decline_ticket(ticket_id):
         if ticket:
             add_notification(None, 'Portal Admin', f"ACTION REQUIRED: Tech {ticket['assigned_technician']} requested to decline {ticket_id}.", is_urgent=1, db_conn=conn)
             add_notification(ticket['user_name'], None, f"Update: Processing reassignment for {ticket_id} to ensure fastest resolution.", db_conn=conn)
-        conn.commit()
         return jsonify({"status": "success"}), 200
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -657,7 +668,6 @@ def approve_decline(ticket_id):
             else:
                 conn.execute("UPDATE tickets SET assigned_technician = 'Unassigned', status = 'Pending', decline_reason = NULL WHERE ticket_id = ?", (ticket_id,))
                 add_notification(None, 'Portal Admin', f"Unassigned: {ticket_id} returned to queue. No tech available.", is_urgent=1, db_conn=conn)
-            conn.commit()
         return jsonify({"status": "success"}), 200
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -672,7 +682,6 @@ def reject_decline(ticket_id):
         conn.execute("UPDATE tickets SET status = 'Assigned', decline_reason = NULL WHERE ticket_id = ?", (ticket_id,))
         if ticket: 
             add_notification(ticket['assigned_technician'], None, f"ADMIN DENIED DECLINE: You are required to complete {ticket_id}.", is_urgent=1, db_conn=conn)
-        conn.commit()
         return jsonify({"status": "success"}), 200
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -701,7 +710,6 @@ def mark_read():
     try:
         data = request.json
         conn.execute("UPDATE system_notifications SET is_read = 1 WHERE target_user = ? OR target_role = ?", (data['name'], data['role']))
-        conn.commit()
         return jsonify({"status": "success"})
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -733,7 +741,7 @@ def handle_qa_response(ticket_id):
             
         if answer == 'yes':
             conn.execute('''UPDATE tickets 
-                            SET status = 'Closed', last_updated_at = CURRENT_TIMESTAMP, 
+                            SET status = 'Closed', last_updated_at = NOW(), 
                                 user_rating = ?, user_feedback = ? 
                             WHERE ticket_id = ?''', (rating, feedback, ticket_id))
             
@@ -741,15 +749,13 @@ def handle_qa_response(ticket_id):
             conn.execute("UPDATE technicians SET points = points + ? WHERE name = ?", (points_awarded, ticket['assigned_technician'])) 
             
             add_notification(ticket['assigned_technician'], None, f"🎉 QA Passed! +{points_awarded} Points. User rated you {rating} Stars!", db_conn=conn)
-            conn.commit()
             return f"<h1 style='color: #10b981; font-family: sans-serif;'>Thank you!</h1><p style='font-family: sans-serif;'>Your {rating}-star rating has been recorded for {ticket['assigned_technician']}. Have a great day!</p>"
         
         else:
-            conn.execute("UPDATE tickets SET status = 'Escalated', priority = 'Urgent', last_updated_at = CURRENT_TIMESTAMP WHERE ticket_id = ?", (ticket_id,))
+            conn.execute("UPDATE tickets SET status = 'Escalated', priority = 'Urgent', last_updated_at = NOW() WHERE ticket_id = ?", (ticket_id,))
             conn.execute("UPDATE technicians SET points = points - 5 WHERE name = ?", (ticket['assigned_technician'],)) 
             add_notification(None, 'Portal Admin', f"🚨 QA FAILED: {ticket_id} was not fixed properly by {ticket['assigned_technician']}! Escalated to URGENT.", is_urgent=1, db_conn=conn)
             add_notification(ticket['assigned_technician'], None, f"⚠️ QA ALERT: -5 Points. User reported {ticket_id} is STILL BROKEN.", is_urgent=1, db_conn=conn)
-            conn.commit()
             return "<h1 style='color: #ef4444; font-family: sans-serif;'>Apologies!</h1><p style='font-family: sans-serif;'>The ticket has been automatically reopened, escalated to URGENT priority, and the Admin has been notified.</p>"
     except Exception as e:
         return str(e), 500
@@ -773,7 +779,6 @@ def toggle_shift():
         status_msg = "Clocked In: You are now receiving AI dispatches." if new_status == 1 else "Clocked Out: AI dispatches paused."
         add_notification(tech_name, None, status_msg, db_conn=conn)
         
-        conn.commit()
         return jsonify({"status": "success", "is_on_shift": new_status}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -802,17 +807,16 @@ def handle_part_request():
         
         if action == 'Approve':
             conn.execute("UPDATE part_requests SET status = 'Approved' WHERE id = ?", (req_id,))
-            conn.execute("UPDATE tickets SET status = 'In Progress', last_updated_at = CURRENT_TIMESTAMP WHERE ticket_id = ?", (part_req['ticket_id'],))
+            conn.execute("UPDATE tickets SET status = 'In Progress', last_updated_at = NOW() WHERE ticket_id = ?", (part_req['ticket_id'],))
             
-            conn.execute("UPDATE inventory SET stock_level = MAX(0, stock_level - 1) WHERE LOWER(item_name) LIKE ?", (f"%{part_req['part_name'].lower()}%",))
+            conn.execute("UPDATE inventory SET stock_level = GREATEST(0, stock_level - 1) WHERE LOWER(item_name) LIKE LOWER(?)", (f"%{part_req['part_name']}%",))
             
             add_notification(part_req['tech_name'], None, f"✅ APPROVED: Part '{part_req['part_name']}' is ready for pickup. Ticket {part_req['ticket_id']} resumed.", db_conn=conn)
         else:
             conn.execute("UPDATE part_requests SET status = 'Denied' WHERE id = ?", (req_id,))
-            conn.execute("UPDATE tickets SET status = 'In Progress', last_updated_at = CURRENT_TIMESTAMP WHERE ticket_id = ?", (part_req['ticket_id'],))
+            conn.execute("UPDATE tickets SET status = 'In Progress', last_updated_at = NOW() WHERE ticket_id = ?", (part_req['ticket_id'],))
             add_notification(part_req['tech_name'], None, f"❌ DENIED: Request for '{part_req['part_name']}' was rejected.", is_urgent=1, db_conn=conn)
             
-        conn.commit()
         return jsonify({"status": "success"}), 200
     except Exception as e: return jsonify({"status": "error", "message": str(e)}), 500
     finally: conn.close()
@@ -866,7 +870,6 @@ def buy_part():
     try:
         conn.execute("UPDATE inventory SET stock_level = stock_level + 10 WHERE item_name = ?", (part_name,))
         add_notification(None, 'Portal Admin', f"📦 PROCUREMENT: 10 units of '{part_name}' ordered and added to local stock.", db_conn=conn)
-        conn.commit()
         return jsonify({"status": "success"})
     finally:
         conn.close()
@@ -876,15 +879,12 @@ def buy_part():
 # ==========================================
 def monitoring_agent_loop():
     time.sleep(2)
-    last_reset_date = None
     last_pm_time = time.time() 
     
     while True:
         conn = None
         try:
             conn = get_db_connection() 
-            now = datetime.now()
-            current_date = now.date()
             
             if time.time() - last_pm_time > 7776000: 
                 try:
@@ -914,7 +914,7 @@ def monitoring_agent_loop():
             qa_pending = conn.execute("""
                 SELECT ticket_id, user_name, assigned_technician FROM tickets 
                 WHERE status = 'Resolved' AND qa_sent = 0 
-                AND datetime(last_updated_at) <= datetime('now', '-24 hours')
+                AND last_updated_at <= NOW() - INTERVAL '24 hours'
             """).fetchall()
             
             for q in qa_pending:
@@ -939,34 +939,34 @@ def monitoring_agent_loop():
                 
                 minutes_worked_today = conn.execute('''
                     SELECT SUM(time_taken_mins) as total_mins FROM tickets 
-                    WHERE assigned_technician = ? 
+                    WHERE assigned_technician = %s 
                     AND status IN ('Resolved', 'Closed') 
-                    AND date(last_updated_at) = date('now', 'localtime')
+                    AND DATE(last_updated_at) = CURRENT_DATE
                 ''', (t['name'],)).fetchone()['total_mins'] or 0
                 
                 active_tickets = conn.execute('''
                     SELECT ticket_id FROM tickets 
-                    WHERE assigned_technician = ? AND status IN ('Assigned', 'In Progress', 'Awaiting Parts') 
+                    WHERE assigned_technician = %s AND status IN ('Assigned', 'In Progress', 'Awaiting Parts') 
                     ORDER BY created_at ASC
                 ''', (t['name'],)).fetchall()
                 
                 if len(active_tickets) > 1:
                     excess_count = len(active_tickets) - 1
                     for excess in active_tickets[1:]:
-                        conn.execute("UPDATE tickets SET status = 'Pending' WHERE ticket_id = ?", (excess['ticket_id'],))
+                        conn.execute("UPDATE tickets SET status = 'Pending' WHERE ticket_id = %s", (excess['ticket_id'],))
                     active_tickets = active_tickets[:1]
                 
-                conn.execute("UPDATE technicians SET current_active_hours = ? WHERE name = ?", (minutes_worked_today, t['name']))
+                conn.execute("UPDATE technicians SET current_active_hours = %s WHERE name = %s", (minutes_worked_today, t['name']))
                 
                 if (minutes_worked_today < max_minutes or t['overtime_opt_in'] == 1) and len(active_tickets) == 0:
                     next_ticket = conn.execute('''
                         SELECT ticket_id FROM tickets 
-                        WHERE assigned_technician = ? AND status = 'Pending' 
+                        WHERE assigned_technician = %s AND status = 'Pending' 
                         ORDER BY priority DESC, created_at ASC LIMIT 1
                     ''', (t['name'],)).fetchone()
                     
                     if next_ticket:
-                        conn.execute("UPDATE tickets SET status = 'Assigned' WHERE ticket_id = ?", (next_ticket['ticket_id'],))
+                        conn.execute("UPDATE tickets SET status = 'Assigned' WHERE ticket_id = %s", (next_ticket['ticket_id'],))
                         add_notification(t['name'], None, f"NEW ASSIGNMENT: Task {next_ticket['ticket_id']} assigned.", db_conn=conn)
 
             absent_tasks = conn.execute('''
@@ -989,7 +989,6 @@ def monitoring_agent_loop():
                 tech = tool_get_available_technician(u['department'], u['building'], db_conn=conn)
                 if tech['status'] == 'success':
                     tool_assign_ticket(u['ticket_id'], tech['technician_name'], db_conn=conn)
-            conn.commit()
         except Exception as e: 
             print("Monitor Loop Error:", e)
         finally:
@@ -997,10 +996,6 @@ def monitoring_agent_loop():
                 conn.close() 
         
         time.sleep(60)
-
-@app.route('/')
-def index():
-    return send_from_directory('.', 'index.html')
 
 @app.route('/api/debug/audit')
 def check_audit():
@@ -1016,17 +1011,8 @@ def checkout_tool():
     data = request.json
     conn = get_db_connection()
     try:
-        conn.execute('''CREATE TABLE IF NOT EXISTS tool_checkouts (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        tool_name TEXT,
-                        tech_name TEXT,
-                        checkout_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        status TEXT DEFAULT 'Borrowed'
-                    )''')
-        
         conn.execute('INSERT INTO tool_checkouts (tool_name, tech_name) VALUES (?, ?)', 
                      (data['tool_name'], data['tech_name']))
-        conn.commit()
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
@@ -1037,9 +1023,6 @@ def checkout_tool():
 def get_active_tools():
     conn = get_db_connection()
     try:
-        conn.execute('''CREATE TABLE IF NOT EXISTS tool_checkouts (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT, tool_name TEXT, tech_name TEXT, checkout_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, status TEXT DEFAULT 'Borrowed'
-                    )''')
         logs = conn.execute("SELECT * FROM tool_checkouts ORDER BY status ASC, checkout_date DESC").fetchall()
         return jsonify({"status": "success", "data": [dict(l) for l in logs]})
     except Exception as e:
@@ -1052,7 +1035,6 @@ def return_tool(log_id):
     conn = get_db_connection()
     try:
         conn.execute("UPDATE tool_checkouts SET status = 'Returned' WHERE id = ?", (log_id,))
-        conn.commit()
         return jsonify({"status": "success"})
     finally:
         conn.close()
@@ -1110,10 +1092,10 @@ def get_price_history(item_name):
         
         for i in range(5, -1, -1):
             month_idx = (current_month - i - 1) % 12
-            fluctuation = base_price * random.uniform(-0.15, 0.15)
+            fluctuation = float(base_price) * random.uniform(-0.15, 0.15)
             history.append({
                 "month": months[month_idx],
-                "price": round(base_price + fluctuation, 2)
+                "price": round(float(base_price) + fluctuation, 2)
             })
             
         return jsonify({"status": "success", "data": history})
@@ -1144,7 +1126,6 @@ def adjust_stock():
         
         new_stock = max(0, item['stock_level'] + delta)
         conn.execute("UPDATE inventory SET stock_level = ? WHERE item_name = ?", (new_stock, item_name))
-        conn.commit()
         
         return jsonify({"status": "success", "new_stock": new_stock})
     except Exception as e:
@@ -1157,17 +1138,11 @@ def log_inventory_audit():
     data = request.json
     conn = get_db_connection()
     try:
-        conn.execute('''CREATE TABLE IF NOT EXISTS inventory_audit (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        item_name TEXT, tech_name TEXT, change_amount INTEGER, 
-                        reason TEXT, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-        
-        conn.execute("UPDATE inventory SET stock_level = max(0, stock_level - ?) WHERE item_name = ?", 
+        conn.execute("UPDATE inventory SET stock_level = GREATEST(0, stock_level - %s) WHERE item_name = %s", 
                      (data['amount_lost'], data['item_name']))
         
-        conn.execute("INSERT INTO inventory_audit (item_name, tech_name, change_amount, reason) VALUES (?, ?, ?, ?)", 
-                     (data['item_name'], data['tech_name'], -abs(int(data['amount_lost'])), data['reason']))
-        conn.commit()
+        conn.execute('INSERT INTO audit_logs ("user", action, target) VALUES (%s, %s, %s)', 
+                     (data['tech_name'], 'INVENTORY_AUDIT_MISSING', data['item_name']))
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
@@ -1189,9 +1164,8 @@ def checkout_kit():
             return jsonify({"status": "error", "message": "Kit recipe not found in database."})
         
         for item_name, qty in kits[kit_type]:
-            conn.execute("UPDATE inventory SET stock_level = max(0, stock_level - ?) WHERE item_name = ?", (qty, item_name))
+            conn.execute("UPDATE inventory SET stock_level = GREATEST(0, stock_level - %s) WHERE item_name = %s", (qty, item_name))
             
-        conn.commit()
         return jsonify({"status": "success", "message": f"{kit_type} checked out successfully!"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
@@ -1220,7 +1194,6 @@ def get_campus_heatmap():
         return jsonify({"status": "error", "message": str(e)})
     finally:
         conn.close()
-
 
 LOCKDOWN_MODE = False
 
@@ -1275,7 +1248,6 @@ def toggle_lockdown():
     try:
         if LOCKDOWN_MODE:
             conn.execute("UPDATE tickets SET priority = 'High' WHERE status != 'Resolved' AND tags = 'Emergency'")
-            conn.commit()
         return jsonify({"status": "success", "lockdown_mode": LOCKDOWN_MODE})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
@@ -1315,9 +1287,7 @@ def get_campus_briefing():
                 return jsonify({"status": "success", "briefing": fallback_briefing})
         except Exception as gemini_error:
             print(f"Gemini API Skipped: {gemini_error}")
-            
             LAST_BRIEFING_TIME = time.time() 
-            
             return jsonify({"status": "success", "briefing": fallback_briefing})
             
     except Exception as e:
@@ -1350,30 +1320,6 @@ def get_recent_decisions():
     finally:
         conn.close()
 
-@app.route('/api/technicians/toggle-break', methods=['PUT'])
-def toggle_break():
-    tech_name = request.json.get('name')
-    conn = get_db_connection()
-    try:
-        tech = conn.execute("SELECT on_break FROM technicians WHERE name = ?", (tech_name,)).fetchone()
-        new_status = 0 if tech['on_break'] == 1 else 1
-        conn.execute("UPDATE technicians SET on_break = ? WHERE name = ?", (new_status, tech_name))
-        conn.commit()
-        return jsonify({"status": "success"})
-    finally: conn.close()
-
-@app.route('/api/technicians/toggle-overtime', methods=['PUT'])
-def toggle_overtime():
-    tech_name = request.json.get('name')
-    conn = get_db_connection()
-    try:
-        tech = conn.execute("SELECT overtime_opt_in FROM technicians WHERE name = ?", (tech_name,)).fetchone()
-        new_status = 0 if tech['overtime_opt_in'] == 1 else 1
-        conn.execute("UPDATE technicians SET overtime_opt_in = ? WHERE name = ?", (new_status, tech_name))
-        conn.commit()
-        return jsonify({"status": "success"})
-    finally: conn.close()
-
 @app.route('/api/technicians/leave-requests', methods=['POST', 'GET'])
 def handle_leaves():
     conn = get_db_connection()
@@ -1383,7 +1329,6 @@ def handle_leaves():
             conn.execute("INSERT INTO leave_requests (tech_name, start_date, end_date, reason) VALUES (?, ?, ?, ?)", 
                          (data['tech_name'], data['start_date'], data['end_date'], data['reason']))
             add_notification(None, 'Portal Admin', f"LEAVE REQUEST: {data['tech_name']} requested time off from {data['start_date']} to {data['end_date']}.", db_conn=conn)
-            conn.commit()
             return jsonify({"status": "success"})
         else:
             tech_name = request.args.get('name')
@@ -1399,7 +1344,6 @@ def handle_trades():
             data = request.json
             conn.execute("INSERT INTO shift_trades (requester, department, target_date) VALUES (?, ?, ?)", 
                          (data['requester'], data['department'], data['target_date']))
-            conn.commit()
             return jsonify({"status": "success"})
         else:
             dept = request.args.get('department')
@@ -1458,121 +1402,6 @@ def get_tech_performance():
     finally:
         conn.close()
 
-@app.route('/api/technicians/location', methods=['PUT'])
-def update_location():
-    data = request.json
-    conn = get_db_connection()
-    try:
-        conn.execute("UPDATE technicians SET current_building = ? WHERE name = ?", (data['building'], data['name']))
-        conn.commit()
-        return jsonify({"status": "success"})
-    finally: conn.close()
-
-@app.route('/api/tickets/sos', methods=['POST'])
-def trigger_sos():
-    data = request.json
-    tech_name = data.get('name')
-    bldg = data.get('building', 'Unknown')
-    conn = get_db_connection()
-    try:
-        ticket_id = 'SOS-' + str(random.randint(1000,9999))
-        issue = f"EMERGENCY SOS triggered by Technician {tech_name}"
-        conn.execute('INSERT INTO tickets (ticket_id, user_name, role, department, building, location, issue, priority, status, ai_analysis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            (ticket_id, tech_name, 'Campus Technician', 'Security & Surveillance', bldg, 'User Live Location', issue, 'Urgent', 'Pending', 'CRITICAL OVERRIDE: SOS Panic Button Pressed.'))
-        add_notification(None, 'Portal Admin', f"🚨 SOS ALERT: {tech_name} pressed the panic button at {bldg}!", is_urgent=1, db_conn=conn)
-        conn.commit()
-        return jsonify({"status": "success", "ticket_id": ticket_id})
-    finally: conn.close()
-
-@app.route('/api/tickets/hazard', methods=['POST'])
-def report_hazard():
-    data = request.json
-    desc = data.get('description')
-    tech_name = data.get('name')
-    bldg = data.get('building', 'Unknown')
-    conn = get_db_connection()
-    try:
-        prompt = f"A field technician quickly typed this hazard report: '{desc}'. Expand this into a formal, professional 2-sentence maintenance ticket issue."
-        if 'client' in globals() and client:
-            resp = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
-        else:
-            resp = f"Hazard reported by {tech_name}: {desc}"
-        
-        ai_decision = classify_ticket_with_ai(resp)
-        ticket_id = 'HAZ-' + str(random.randint(1000,9999))
-        
-        conn.execute('INSERT INTO tickets (ticket_id, user_name, role, department, building, location, issue, priority, ai_analysis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            (ticket_id, tech_name, 'Campus Technician', ai_decision['department'], bldg, 'Reported via Snap&Report', resp, ai_decision['priority'], ai_decision['ai_analysis']))
-        
-        tech = tool_get_available_technician(ai_decision['department'], bldg, db_conn=conn)
-        if tech['status'] == 'success':
-            tool_assign_ticket(ticket_id, tech['technician_name'], db_conn=conn)
-        
-        conn.commit()
-        return jsonify({"status": "success", "ticket": resp})
-    finally: conn.close()
-
-@app.route('/api/tickets/<ticket_id>/update-status', methods=['PUT'])
-def update_ticket_status(ticket_id):
-    new_status = request.json.get('status')
-    conn = get_db_connection()
-    try:
-        conn.execute("UPDATE tickets SET status = ?, last_updated_at = CURRENT_TIMESTAMP WHERE ticket_id = ?", (new_status, ticket_id))
-        conn.commit()
-        return jsonify({"status": "success"})
-    finally: conn.close()
-
-@app.route('/api/ai/preflight', methods=['POST'])
-def ai_preflight():
-    issue = request.json.get('issue')
-    conn = get_db_connection()
-    try:
-        inv = conn.execute("SELECT item_name, stock_level FROM inventory").fetchall()
-        stock_list = ", ".join([f"{i['item_name']} (Qty: {i['stock_level']})" for i in inv])
-        
-        if 'client' in globals() and client:
-            try:
-                prompt = f"A technician is about to accept this issue: '{issue}'. Look at our live inventory: [{stock_list}]. Identify 1 or 2 parts they will likely need. Format reply as exactly: 'Requires: [parts]. Status: [In Stock / OUT OF STOCK]'."
-                resp = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
-                return jsonify({"status": "success", "analysis": resp})
-            except Exception as e:
-                return jsonify({"status": "success", "analysis": "Requires: Standard Toolkit. Status: IN STOCK (AI Fallback)"})
-                
-        return jsonify({"status": "error", "message": "AI offline."})
-    finally: conn.close()
-
-@app.route('/api/ai/summarize', methods=['POST'])
-def ai_summarize():
-    issue = request.json.get('issue')
-    if 'client' in globals() and client:
-        try:
-            prompt = f"Summarize this maintenance issue into a quick, 1-sentence TL;DR for a busy technician: {issue}"
-            resp = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
-            return jsonify({"status": "success", "summary": resp})
-        except Exception as e:
-             return jsonify({"status": "success", "summary": f"System Note: {issue[:60]}... (AI Quota Exhausted)"})
-             
-    return jsonify({"status": "error", "message": "AI offline."})
-
-@app.route('/api/ai/draft-update', methods=['POST'])
-def ai_draft_update():
-    data = request.get_json()
-    issue = data.get('issue')
-    status = data.get('status')
-    user_name = data.get('user_name', 'Campus Staff')
-    tech_name = data.get('tech_name', 'Campus Technician')
-    
-    if 'client' in globals() and client:
-        try:
-            prompt = f"Write a formal, polite email update to {user_name} regarding their reported issue: '{issue}'. Current Status is: '{status}'. Sign the email from {tech_name}."
-            resp = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
-            return jsonify({"status": "success", "draft": resp})
-        except Exception as e:
-            fallback = f"Dear {user_name},\n\nThis is an automated update regarding your maintenance request. Its current status is now: {status}.\n\nBest regards,\n{tech_name}"
-            return jsonify({"status": "success", "draft": fallback})
-            
-    return jsonify({"status": "error", "message": "AI offline."})
-
 @app.route('/api/admin/pending-approvals', methods=['GET'])
 def get_pending_approvals():
     conn = get_db_connection()
@@ -1590,7 +1419,6 @@ def approve_user():
     try:
         conn.execute("UPDATE users SET account_status = 'Approved' WHERE email = ?", (email,))
         conn.execute("UPDATE technicians SET account_status = 'Approved' WHERE name = (SELECT name FROM users WHERE email = ?)", (email,))
-        conn.commit()
         return jsonify({"status": "success"})
     except Exception as e: return jsonify({"status": "error"})
     finally: conn.close()
@@ -1604,12 +1432,10 @@ def process_leave():
         conn.execute("UPDATE leave_requests SET status = ? WHERE id = ?", (decision, req_id))
         leave = conn.execute("SELECT tech_name FROM leave_requests WHERE id = ?", (req_id,)).fetchone()
         add_notification(leave['tech_name'], None, f"HR Department Update: Your leave request has been officially {decision.upper()}.", db_conn=conn)
-        conn.commit()
         return jsonify({"status": "success"})
     except Exception as e: return jsonify({"status": "error"})
     finally: conn.close()
 
-# Force Gunicorn to run the DB setup and AI monitor on cloud startup!
 init_db()
 monitor_thread = threading.Thread(target=monitoring_agent_loop, daemon=True)
 monitor_thread.start()
