@@ -128,6 +128,8 @@ def init_db():
         # 3. SEED PERMANENT SYSTEM MANAGEMENT ACCOUNTS
         c.execute('''INSERT OR IGNORE INTO users (name, email, password, role, account_status) 
                      VALUES ('Master Admin', 'admin@campus.edu', 'Admin123!', 'Portal Admin', 'Approved')''')
+        c.execute('''INSERT OR IGNORE INTO users (name, email, password, role, account_status) 
+                     VALUES ('Campus User', 'user@campus.edu', 'User123!', 'Campus Staff', 'Approved')''')
         
         c.execute('''INSERT OR IGNORE INTO users (name, email, password, role, account_status) 
                      VALUES ('Master Tech Aarav', 'tech@campus.edu', 'Tech123!', 'Master Technician', 'Approved')''')
@@ -135,17 +137,21 @@ def init_db():
                      VALUES ('Master Tech Aarav', 'All', 0, 12, 'Approved')''')
 
         # 4. SEED 1 PERMANENT TECHNICIAN FOR EACH CORE DEPARTMENT
-        depts = [
-            'IT & Network Services', 'Electrical Maintenance', 'Plumbing Maintenance', 
-            'Civil Maintenance', 'Air Conditioning & Ventilation Services', 
-            'Security & Surveillance', 'Housekeeping Services', 'Fire Safety Systems', 
-            'Water Supply & Sewage Management', 'Equipment Support'
+       # 4. SEED 1 REALISTIC TECHNICIAN FOR EACH CORE DEPARTMENT
+        tech_roster = [
+            ('IT & Network Services', 'Rohan Desai', 'rohan.it@campus.edu'),
+            ('Electrical Maintenance', 'Vikram Singh', 'vikram.elec@campus.edu'),
+            ('Plumbing Maintenance', 'Arjun Patel', 'arjun.plumb@campus.edu'),
+            ('Civil Maintenance', 'Neha Kulkarni', 'neha.civil@campus.edu'),
+            ('Air Conditioning & Ventilation Services', 'Aditya Joshi', 'aditya.hvac@campus.edu'),
+            ('Security & Surveillance', 'Karan Verma', 'karan.sec@campus.edu'),
+            ('Housekeeping Services', 'Pooja Nair', 'pooja.clean@campus.edu'),
+            ('Fire Safety Systems', 'Rahul Menon', 'rahul.fire@campus.edu'),
+            ('Water Supply & Sewage Management', 'Sanjay Gupta', 'sanjay.water@campus.edu'),
+            ('Equipment Support', 'Priya Rao', 'priya.equip@campus.edu')
         ]
-        for i, dept in enumerate(depts):
-            short_name = dept.split()[0]
-            tech_name = f"Permanent {short_name} Tech"
-            tech_email = f"tech.{short_name.lower()}@campus.edu"
-            
+        
+        for dept, tech_name, tech_email in tech_roster:
             c.execute('''INSERT OR IGNORE INTO users (name, email, password, role, account_status) 
                          VALUES (?, ?, 'Tech123!', 'Campus Technician', 'Approved')''', (tech_name, tech_email))
             c.execute('''INSERT OR IGNORE INTO technicians (name, department, is_on_shift, account_status) 
