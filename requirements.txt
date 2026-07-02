@@ -1,7 +1,7 @@
 Flask
 Flask-Cors
 python-dotenv
-openai
+google-genai
 Flask-Mail
 gunicorn
 psycopg2-binary
