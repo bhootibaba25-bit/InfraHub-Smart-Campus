@@ -249,34 +249,49 @@ def tool_assign_ticket(ticket_id, technician_name, estimated_task_hours=2, db_co
             conn.close()
 
 # ==========================================
-# 4. CLASSIFICATION AGENT (AI LOGIC)
+# 4. NATURAL LANGUAGE CLASSIFICATION AGENT
 # ==========================================
 def classify_ticket_with_ai(issue):
-    issue_lower = issue.lower()
-    urgent_keywords = ['burst', 'flood', 'fire', 'smoke', 'spark', 'gas', 'biohazard', 'blood', 'sewage', 'collapse', 'total outage', 'blackout', 'trapped']
-    high_keywords = ['offline', 'entire floor', 'all network', 'spill', 'broken window', 'stuck elevator', 'fume hood', 'server room', 'no power', 'lecture hall']
-    
-    if any(keyword in issue_lower for keyword in urgent_keywords): 
-        priority = 'Urgent'
-        analysis = "CRITICAL EMERGENCY: Severe safety, structural, or systemic threat detected. Immediate dispatch required."
-    elif any(keyword in issue_lower for keyword in high_keywords): 
-        priority = 'High'
-        analysis = "HIGH PRIORITY: Significant operational disruption or localized hazard detected. Expedited dispatch recommended."
-    else: 
-        priority = 'Medium'
-        analysis = "STANDARD TICKET: Routine maintenance or localized issue. Assigned to standard SLA queue."
-
-    department = 'Civil Maintenance'
-    if any(k in issue_lower for k in ['water', 'leak', 'plumbing', 'pipe', 'flood', 'burst', 'sewage', 'drain', 'faucet', 'toilet']): department = 'Plumbing Maintenance'
-    elif any(k in issue_lower for k in ['ac ', 'air conditioning', 'ventilation', 'hot', 'cold', 'hvac']): department = 'Air Conditioning & Ventilation Services'
-    elif any(k in issue_lower for k in ['power', 'electrical', 'spark', 'light', 'wire', 'outlet', 'breaker']): department = 'Electrical Maintenance'
-    elif any(k in issue_lower for k in ['network', 'server', 'wi-fi', 'internet', 'computer', 'printer']): department = 'IT & Network Services'
-    elif any(k in issue_lower for k in ['lock', 'security', 'camera', 'door stuck', 'badge', 'alarm']): department = 'Security & Surveillance'
-    elif any(k in issue_lower for k in ['lab', 'microscope', 'centrifuge', 'fume hood', 'incubator', 'equipment']): department = 'Equipment Support'
-    elif any(k in issue_lower for k in ['spill', 'trash', 'clean', 'blood', 'vomit', 'biohazard', 'paper towel']): department = 'Housekeeping Services'
-        
-    return {"department": department, "priority": priority, "ai_analysis": analysis}
-
+    """
+    UPGRADED: Uses Gemini LLM to read natural language complaints and return JSON routing data.
+    Removes the old hardcoded keyword logic to satisfy panel feedback.
+    """
+    if 'client' in globals() and client:
+        try:
+            # Instruct the AI to act as the Dispatcher
+            prompt = f"""
+            You are the AI Dispatcher for a university campus maintenance system.
+            Read the following natural language complaint from a user: "{issue}"
+            
+            Based on the complaint, output EXACTLY a valid JSON object with these 3 keys:
+            1. "department": Choose either "IT & Network Services" or "Equipment Support". (Note: We are in Phase 1 IT-only launch. If it sounds like plumbing/civil/etc, map it to IT for now).
+            2. "priority": Choose "Low", "Medium", "High", or "Urgent" based on severity.
+            3. "ai_analysis": A professional 1-sentence explanation of your routing decision.
+            
+            Do not include Markdown formatting or code blocks. Output JSON only.
+            """
+            
+            # Call Gemini
+            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            raw_text = response.text.strip()
+            
+            # Safely extract JSON in case Gemini adds markdown like ```json ... ```
+            start_idx = raw_text.find('{')
+            end_idx = raw_text.rfind('}')
+            
+            if start_idx != -1 and end_idx != -1:
+                json_clean = raw_text[start_idx:end_idx + 1]
+                return json.loads(json_clean)
+                
+        except Exception as e:
+            print(f"NLP Engine Error: {e}")
+            
+    # Fallback Mechanism: If AI hits the 15-request quota limit, don't crash the server.
+    return {
+        "department": "IT & Network Services", 
+        "priority": "Medium", 
+        "ai_analysis": "STANDARD TICKET (AI Offline Fallback): Automatically routed to IT queue."
+    }
 # ==========================================
 # 5. REST API ROUTES & ENDPOINTS
 # ==========================================
