@@ -799,22 +799,12 @@ const technicianModules = [
         { 
             id: 'new-request', icon: 'fa-plus-circle', name: 'New Request', 
             content: `
-                <div class="module-card" style="max-width: 600px; margin: 0 auto;">
-                    <form id="new-ticket-form" onsubmit="event.preventDefault(); executeCreateTicket(); return false;">
-                        <div class="input-group">
-                           <select id="req-dept" required style="padding-left:16px;">
-                                <option value="" disabled selected>Select Department...</option>
-                                <option value="IT & Network Services">IT & Network Services</option>
-                                <option value="Electrical Maintenance">Electrical Maintenance</option>
-                                <option value="Plumbing Maintenance">Plumbing Maintenance</option>
-                                <option value="Civil Maintenance">Civil Maintenance</option>
-                                <option value="Air Conditioning & Ventilation Services">Air Conditioning & Ventilation Services</option>
-                                <option value="Security & Surveillance">Security & Surveillance</option>
-                                <option value="Housekeeping Services">Housekeeping Services</option>
-                                <option value="Fire Safety Systems">Fire Safety Systems</option>
-                                <option value="Water Supply & Sewage Management">Water Supply & Sewage Management</option>
-                                <option value="Equipment Support">Equipment Support</option>
-                            </select>
+               <select id="reg-tech-dept" style="padding-left: 45px;">
+                        <option value="" disabled selected>Select Your Department...</option>
+                        <option value="IT & Network Services">IT & Network Services</option>
+                        <option value="Equipment Support">Equipment Support</option>
+                        <option value="" disabled>--- Other Depts Locked Until Phase 2 ---</option>
+                    </select>
                         </div>
                         <div class="input-group">
                             <select id="req-build" required style="padding-left:16px;">
