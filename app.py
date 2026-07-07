@@ -1016,7 +1016,7 @@ def monitoring_agent_loop():
                 conn.execute("UPDATE tickets SET status = 'Escalated' WHERE ticket_id = ?", (o['ticket_id'],))
                 add_notification(None, 'Portal Admin', f"ESCALATION: {o['ticket_id']} is critical and unassigned! Intervene.", is_urgent=1, db_conn=conn)
             
-            unassigned = conn.execute("SELECT ticket_id, department, building FROM tickets WHERE assigned_technician = 'Unassigned' AND status = 'Pending'").fetchall()
+            unassigned = conn.execute("SELECT ticket_id, department, building FROM tickets WHERE assigned_technician = 'Unassigned' AND status IN ('Pending', 'Escalated')").fetchall()
             for u in unassigned:
                 tech = tool_get_available_technician(u['department'], u['building'], db_conn=conn)
                 if tech['status'] == 'success':
