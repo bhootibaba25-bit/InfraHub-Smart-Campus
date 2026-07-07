@@ -1453,6 +1453,57 @@ const technicianModules = [
         }
     };
 
+    window.renderTechTickets = function(filterType) {
+        let html = '';
+        
+        if (globalTicketsData.length === 0) { 
+            html = `<div class="ticket-card"><p style="color:white;">No tasks currently in your queue.</p></div>`; 
+        } else {
+            globalTicketsData.forEach(t => {
+                let urgencyColor = '#10b981', urgencyBg = 'rgba(16, 185, 129, 0.2)', pulseClass = '';
+                if (t.priority === 'Urgent') { urgencyColor = '#fca5a5'; urgencyBg = 'rgba(254, 226, 226, 0.2)'; pulseClass = 'pulse-urgent'; } 
+                else if (t.priority === 'High') { urgencyColor = '#fbbf24'; urgencyBg = 'rgba(251, 191, 36, 0.2)'; }
+
+                html += `
+                    <div class="ticket-card ${pulseClass}" style="border-left: 4px solid ${urgencyColor};">
+                        <div class="ticket-header">
+                            <span class="ticket-id">${t.ticket_id}</span>
+                            <div>
+                                <span class="badge" style="background: ${urgencyBg}; color: ${urgencyColor}; margin-right: 5px;"><i class="fa-solid fa-bolt"></i> ${t.priority || 'Medium'}</span>
+                                <span class="badge badge-progress" style="background: rgba(255,255,255,0.2); color: white;">${t.status}</span>
+                            </div>
+                        </div>
+                        <h3 class="ticket-title">${safeText(t.issue)}</h3>
+                        <p class="ticket-meta"><i class="fa-solid fa-location-dot"></i> ${t.building} (${t.location}) &nbsp;|&nbsp; <i class="fa-regular fa-clock"></i> ${timeAgo(t.created_at)}</p>
+                        
+                        <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
+                            <button onclick="runPreFlight('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#a855f7; width:auto;"><i class="fa-solid fa-boxes"></i> AI Pre-Flight</button>
+                            <button onclick="draftUpdate('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Update User</button>
+                            <button onclick="summarizeThread('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
+                            
+                            ${t.status === 'Pending' || t.status === 'Assigned' ? `<button onclick="acceptTicket('${t.ticket_id}', '${t.priority}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#10b981; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-check"></i> Accept Job</button>` : ''}
+                            ${t.status === 'Pending' || t.status === 'Assigned' || t.status === 'In Progress' ? `<button onclick="transferTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#f59e0b; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-right-left"></i> Transfer Dept</button>` : ''}
+                        </div>
+                        <div id="ai-out-${t.ticket_id}" style="margin-top:12px; font-size:0.85rem; color:#10b981; font-weight:bold;"></div>
+
+                        ${t.status === 'In Progress' ? `
+                            <div style="margin-top: 15px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #38bdf8;">
+                                <label style="display:block; color:#cbd5e1; font-size:0.8rem; margin-bottom:8px;">Upload Resolution Photo (Required to Close):</label>
+                                <input type="file" id="res-photo-${t.ticket_id}" accept="image/*" style="width: 100%; color: white; font-size: 0.8rem; margin-bottom: 10px;">
+                                <button onclick="resolveTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#38bdf8; width:100%;"><i class="fa-solid fa-flag-checkered"></i> Submit Photo & Mark Resolved</button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+        }
+        
+        const targetArea = document.getElementById('module-dynamic-area');
+        if (targetArea) targetArea.innerHTML = html;
+        if(document.getElementById('ticket-search-bar')) filterTickets();
+    };
+
     function renderAdminTickets(filterType) {
         document.querySelectorAll('.tab-btn').forEach(btn => btn.style.background = 'rgba(255,255,255,0.1)');
         const activeTab = document.getElementById(`tab-${filterType}`);
@@ -1638,6 +1689,77 @@ const technicianModules = [
         appContainer.classList.add('hidden'); authContainer.classList.remove('hidden');
         document.getElementById('login-email').value = ''; document.getElementById('login-password').value = '';
     });
+        // ==========================================
+    // PASSWORD RESET FUNCTIONS
+    // ==========================================
+    async function requestOTP() {
+        const email = document.getElementById('forgot-email').value.trim().toLowerCase();
+        if (!email) return alert("Please enter your email address.");
+
+        // Change button to show loading state
+        const btn = document.querySelector('#forgot-step-1 .primary-btn');
+        const originalText = btn.innerText;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...';
+
+        try {
+            const response = await fetch('/api/forgot-password/request', {
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email })
+            });
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                // Hide Step 1 (Email), Show Step 2 (OTP & New Password)
+                document.getElementById('forgot-step-1').classList.add('hidden');
+                document.getElementById('forgot-step-2').classList.remove('hidden');
+            } else {
+                alert("❌ " + (data.message || "Failed to send OTP."));
+            }
+        } catch (error) {
+            alert("❌ Network error: Could not connect to the server.");
+        } finally {
+            btn.innerText = originalText;
+        }
+    }
+
+    async function submitPasswordReset() {
+        const email = document.getElementById('forgot-email').value.trim().toLowerCase();
+        const otp = document.getElementById('forgot-otp').value.trim();
+        const newPassword = document.getElementById('forgot-new-password').value;
+
+        if (!otp || !newPassword) return alert("Please enter both the 6-digit OTP and your new password.");
+
+        const btn = document.querySelector('#forgot-step-2 .primary-btn');
+        const originalText = btn.innerText;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Resetting...';
+
+        try {
+            const response = await fetch('/api/forgot-password/reset', {
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email, otp: otp, new_password: newPassword })
+            });
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                alert("✅ Password reset successfully! You can now log in with your new password.");
+                // Clear the form and reset the view
+                document.getElementById('forgot-email').value = '';
+                document.getElementById('forgot-otp').value = '';
+                document.getElementById('forgot-new-password').value = '';
+                document.getElementById('forgot-step-2').classList.add('hidden');
+                document.getElementById('forgot-step-1').classList.remove('hidden');
+                showAuthView(loginView);
+            } else {
+                alert("❌ " + (data.message || "Invalid OTP or request expired."));
+            }
+        } catch (error) {
+            alert("❌ Network error: Could not connect to the server.");
+        } finally {
+            btn.innerText = originalText;
+        }
+    }
 
     // Create a new request safely
     // Create a new request safely
