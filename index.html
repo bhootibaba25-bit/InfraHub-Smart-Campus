@@ -1363,10 +1363,12 @@
                             <p class="ticket-meta"><i class="fa-solid fa-location-dot"></i> ${t.building} (${t.location}) &nbsp;|&nbsp; <i class="fa-regular fa-clock"></i> ${timeAgo(t.created_at)}</p>
                             
                             <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-                                <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
-                                <button onclick="runPreFlight('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#a855f7; width:auto;"><i class="fa-solid fa-boxes"></i> AI Pre-Flight</button>
-                                <button onclick="draftUpdate('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Update User</button>
-                                <button onclick="summarizeThread('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
+    <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
+    <button onclick="summarizeThread('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
+    <button onclick="draftUpdate('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Formal Update</button>
+    <button onclick="transferTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#f59e0b; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-right-left"></i> Force Transfer</button>
+    <button onclick="deleteRequest('${t.ticket_id}', '${filterType}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid #ef4444; width:auto; margin-left:5px;"><i class="fa-solid fa-trash-can"></i> Cancel Ticket</button>
+
                                 ${t.status === 'Pending' || t.status === 'Assigned' ? `<button onclick="acceptTicket('${t.ticket_id}', '${t.priority}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#10b981; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-check"></i> Accept Job</button>` : ''}
                                 ${t.status === 'Pending' || t.status === 'Assigned' || t.status === 'In Progress' ? `<button onclick="transferTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#f59e0b; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-right-left"></i> Transfer Dept</button>` : ''}
                                 ${t.status === 'Pending' || t.status === 'Assigned' ? `<button onclick="openDeclineModal('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:transparent; color:#fca5a5; border:1px solid #fca5a5; width:auto; margin-left:5px;"><i class="fa-solid fa-ban"></i> Decline</button>` : ''}
@@ -1838,12 +1840,11 @@
         };
 
         // Safely delete a request
-        window.deleteRequest = async function(ticketId) {
-            if(confirm(`Are you sure you want to withdraw request ${ticketId}?`)) {
-                // Fix: Removed 'window.' so it targets the 'let' variable correctly
+        window.deleteRequest = async function(ticketId, currentTab = 'Queue') {
+            if(confirm(`Are you sure you want to delete request ${ticketId}?`)) {
                 globalTicketsData = globalTicketsData.filter(t => t.ticket_id !== ticketId);
                 
-                if (loggedInRole === 'Portal Admin') renderAdminTickets('Queue');
+                if (loggedInRole === 'Portal Admin') renderAdminTickets(currentTab);
                 else if (loggedInRole === 'Campus Technician' || loggedInRole === 'Master Technician') renderTechTickets('Pending');
                 else renderUserTickets();
                 
@@ -1854,12 +1855,11 @@
                     if (!response.ok || data.status !== 'success') {
                         alert(`❌ Failed to delete: ${data.message || response.statusText}`);
                     } else {
-                        alert(`✅ Request ${ticketId} withdrawn.`);
+                        alert(`✅ Request ${ticketId} deleted.`);
                     }
                 } catch (error) { alert("❌ Server Error on Delete."); }
             }
         }
-
         // ↓↓↓ UPDATED ACCEPT TICKET LOGIC ↓↓↓
         window.acceptTicket = async function(ticketId, priority) {
             if (priority === 'Urgent') alert(`⚠️ SLA WARNING: URGENT ticket accepted.`);
