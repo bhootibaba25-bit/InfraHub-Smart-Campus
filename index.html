@@ -1548,6 +1548,7 @@
                                 <button onclick="summarizeThread('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
                                 <button onclick="draftUpdate('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Formal Update</button>
                                 <button onclick="transferTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#f59e0b; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-right-left"></i> Force Transfer</button>
+                                <button onclick="deleteRequest('${t.ticket_id}', '${filterType}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid #ef4444; width:auto; margin-left:5px;"><i class="fa-solid fa-trash-can"></i> Cancel Ticket</button>
                             </div>
                     `;
 
