@@ -1391,27 +1391,31 @@ const technicianModules = [
     };
   
    // AI ASSISTANT FUNCTIONS
-    window.runPreFlight = async function(id, issue, btn) {
+    window.runPreFlight = async function(ticketId, btn) {
+        const ticket = window.ticketCache[ticketId];
+        if (!ticket) return;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking...';
         try {
-            const res = await fetch('/api/ai/preflight', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({issue: issue}) });
+            const res = await fetch('/api/ai/preflight', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({issue: ticket.issue}) });
             if (!res.ok) throw new Error("Server error");
             const data = await res.json();
             if(data.status === 'success') {
-                document.getElementById(`ai-out-${id}`).innerText = data.analysis;
-                document.getElementById(`ai-out-${id}`).style.color = data.analysis.includes('OUT OF STOCK') ? '#fca5a5' : '#10b981';
+                document.getElementById(`ai-out-${ticketId}`).innerText = data.analysis;
+                document.getElementById(`ai-out-${ticketId}`).style.color = data.analysis.includes('OUT OF STOCK') ? '#fca5a5' : '#10b981';
             }
         } catch(e) {
             alert("Network Error: Could not connect to AI.");
         } finally {
-            btn.innerHTML = '<i class="fa-solid fa-boxes"></i> Pre-Flight Check';
+            btn.innerHTML = '<i class="fa-solid fa-boxes"></i> AI Pre-Flight';
         }
     };
 
-    window.summarizeThread = async function(issue, btn) {
+    window.summarizeThread = async function(ticketId, btn) {
+        const ticket = window.ticketCache[ticketId];
+        if (!ticket) return;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
         try {
-            const res = await fetch('/api/ai/summarize', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({issue: issue}) });
+            const res = await fetch('/api/ai/summarize', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({issue: ticket.issue}) });
             if (!res.ok) throw new Error("Server error");
             const data = await res.json();
             if(data.status === 'success') alert("✨ AI Summary:\n\n" + data.summary);
@@ -1422,26 +1426,24 @@ const technicianModules = [
         }
     };
 
-    window.draftUpdate = async function(status, issue, userName, btn) {
+    window.draftUpdate = async function(ticketId, btn) {
+        const ticket = window.ticketCache[ticketId];
+        if (!ticket) return;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Drafting...';
         
-        // Grab the logged-in technician's name
         const techName = sessionStorage.getItem('hub_name') || 'Technician';
         
         try {
             const res = await fetch('/api/ai/draft-update', { 
                 method: 'POST', 
                 headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify({issue: issue, status: status, user_name: userName, tech_name: techName}) 
+                body: JSON.stringify({issue: ticket.issue, status: ticket.status, user_name: ticket.user_name, tech_name: techName}) 
             });
             if (!res.ok) throw new Error("Server error");
             const data = await res.json();
             
             if(data.status === 'success') {
-                // Generate a mock email address so the "To:" field isn't empty (e.g. dr.smith@campus.edu)
-                const toEmail = `${userName.replace(/\s+/g, '.').toLowerCase()}@campus.edu`;
-                
-                // Open user's default email client with TO, SUBJECT, and BODY filled out!
+                const toEmail = `${ticket.user_name.replace(/\s+/g, '.').toLowerCase()}@campus.edu`;
                 window.location.href = `mailto:${toEmail}?subject=Update on your Maintenance Request&body=${encodeURIComponent(data.draft)}`;
             }
         } catch(e) {
@@ -1491,10 +1493,9 @@ const technicianModules = [
                         
                         <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
                             <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
-                            <button onclick="summarizeThread('${safeText(t.issue).replace(/'/g, "\\'")}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
-                            <button onclick="draftUpdate('${t.status}', '${safeText(t.issue).replace(/'/g, "\\'")}', '${t.user_name}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Formal Update</button>
+                            <button onclick="summarizeThread('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
+                            <button onclick="draftUpdate('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Formal Update</button>
                             <button onclick="transferTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#f59e0b; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-right-left"></i> Force Transfer</button>
-                            <button onclick="deleteRequest('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(239, 68, 68, 0.2); color: #fca5a5; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-trash"></i> Delete</button>
                         </div>
                 `;
 
