@@ -268,10 +268,6 @@ def tool_assign_ticket(ticket_id, technician_name, estimated_task_hours=2, db_co
 # 4. NATURAL LANGUAGE CLASSIFICATION AGENT
 # ==========================================
 def classify_ticket_with_ai(issue):
-    """
-    UPGRADED: Uses Gemini LLM to read natural language complaints and return JSON routing data.
-    Removes the old hardcoded keyword logic to satisfy panel feedback.
-    """
     if 'client' in globals() and client:
         try:
             # Instruct the AI to act as the Dispatcher
@@ -280,18 +276,16 @@ def classify_ticket_with_ai(issue):
             Read the following natural language complaint from a user: "{issue}"
             
             Based on the complaint, output EXACTLY a valid JSON object with these 3 keys:
-            1. "department": Choose either "IT & Network Services" or "Equipment Support". (Note: We are in Phase 1 IT-only launch. If it sounds like plumbing/civil/etc, map it to IT for now).
+            1. "department": Choose either "Civil Maintenance" or "Air Conditioning & Ventilation Services". (Note: We are in a limited beta. If it sounds like plumbing/electrical/IT, map it to Civil Maintenance for now).
             2. "priority": Choose "Low", "Medium", "High", or "Urgent" based on severity.
             3. "ai_analysis": A professional 1-sentence explanation of your routing decision.
             
             Do not include Markdown formatting or code blocks. Output JSON only.
             """
             
-            # Call Gemini
             response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
             raw_text = response.text.strip()
             
-            # Safely extract JSON in case Gemini adds markdown like ```json ... ```
             start_idx = raw_text.find('{')
             end_idx = raw_text.rfind('}')
             
@@ -302,11 +296,11 @@ def classify_ticket_with_ai(issue):
         except Exception as e:
             print(f"NLP Engine Error: {e}")
             
-    # Fallback Mechanism: If AI hits the 15-request quota limit, don't crash the server.
+    # Fallback Mechanism if AI is offline
     return {
-        "department": "IT & Network Services", 
+        "department": "Civil Maintenance", 
         "priority": "Medium", 
-        "ai_analysis": "STANDARD TICKET (AI Offline Fallback): Automatically routed to IT queue."
+        "ai_analysis": "STANDARD TICKET (AI Offline Fallback): Automatically routed to Civil queue."
     }
 # ==========================================
 # 5. REST API ROUTES & ENDPOINTS
