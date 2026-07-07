@@ -361,16 +361,8 @@
                     <i class="fa-solid fa-toolbox input-icon"></i>
                     <select id="reg-tech-dept" style="padding-left: 45px;">
                         <option value="" disabled selected>Select Your Department...</option>
-                        <option value="IT & Network Services">IT & Network Services</option>
-                        <option value="Electrical Maintenance">Electrical Maintenance</option>
-                        <option value="Plumbing Maintenance">Plumbing Maintenance</option>
                         <option value="Civil Maintenance">Civil Maintenance</option>
-                        <option value="Air Conditioning & Ventilation Services">HVAC Services</option>
-                        <option value="Security & Surveillance">Security & Surveillance</option>
-                        <option value="Housekeeping Services">Housekeeping Services</option>
-                        <option value="Fire Safety Systems">Fire Safety Systems</option>
-                        <option value="Water Supply & Sewage Management">Water Supply & Sewage Management</option>
-                        <option value="Equipment Support">Equipment Support</option>
+                        <option value="Air Conditioning & Ventilation Services">Air Conditioning & Ventilation Services (HVAC)</option>
                     </select>
                 </div>
                 <div class="input-group">
@@ -505,11 +497,29 @@
     let globalTicketsData = [];
     window.ticketCache = {}; // Global cache to hold photo data without breaking HTML
 
+    // NEW: Auto-Image Compressor to prevent Database Chokeholds!
     window.fileToBase64 = function(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.readAsDataURL(file);
-            reader.onload = () => resolve(reader.result);
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    // Shrink the image to a max width of 600px
+                    const MAX_WIDTH = 600; 
+                    const scaleSize = MAX_WIDTH / img.width;
+                    canvas.width = MAX_WIDTH;
+                    canvas.height = img.height * scaleSize;
+                    
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    // Export as a highly compressed JPEG
+                    resolve(canvas.toDataURL('image/jpeg', 0.6)); 
+                };
+            };
             reader.onerror = error => reject(error);
         });
     };
@@ -681,16 +691,8 @@
                     </div>
                     <select id="tech-filter" onchange="renderTechs()" style="flex:1; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; border-radius:12px; padding: 0 15px; outline:none;">
                         <option value="All" style="color:black;">All Departments</option>
-                        <option value="IT & Network Services" style="color:black;">IT & Network Services</option>
-                        <option value="Electrical Maintenance" style="color:black;">Electrical Maintenance</option>
-                        <option value="Plumbing Maintenance" style="color:black;">Plumbing Maintenance</option>
                         <option value="Civil Maintenance" style="color:black;">Civil Maintenance</option>
                         <option value="Air Conditioning & Ventilation Services" style="color:black;">Air Conditioning & Ventilation Services</option>
-                        <option value="Security & Surveillance" style="color:black;">Security & Surveillance</option>
-                        <option value="Housekeeping Services" style="color:black;">Housekeeping Services</option>
-                        <option value="Fire Safety Systems">Fire Safety Systems</option>
-                        <option value="Water Supply & Sewage Management">Water Supply & Sewage Management</option>
-                        <option value="Equipment Support">Equipment Support</option>
                     </select>
                 </div>
                 <div id="roster-table-area"><p style="color:white;"><i class="fa-solid fa-spinner fa-spin"></i> Loading roster...</p></div>
@@ -1627,6 +1629,7 @@ const technicianModules = [
     });
 
     // Create a new request safely
+    // Create a new request safely
     async function executeCreateTicket() {
         const reqBuild = document.getElementById('req-build').value;
         const reqLoc = document.getElementById('req-loc').value.trim();
@@ -1652,7 +1655,7 @@ const technicianModules = [
                     ticket_id: 'REQ-' + Math.floor(Math.random() * 9000 + 1000), 
                     user_name: sessionStorage.getItem('hub_name'), 
                     role: loggedInRole, 
-                    department: "Auto-Assigned by AI", 
+                    department: "Auto-Assigned by AI", // Hardcoded to bypass the old dropdown
                     building: reqBuild, 
                     location: reqLoc, 
                     issue: reqIssue, 
@@ -1661,6 +1664,7 @@ const technicianModules = [
             });
             const data = await response.json();
             
+            // ---> NEW DUPLICATE HANDLING LOGIC <---
             if (data.status === 'duplicate') {
                 alert(`🛑 DUPLICATE DETECTED: \n\n${data.message}`);
                 document.getElementById('req-build').value = '';
@@ -1882,8 +1886,7 @@ const technicianModules = [
  }
 
  window.transferTicket = async function(ticketId) {
-     const depts = ['IT & Network Services', 'Electrical Maintenance', 'Plumbing Maintenance', 'Civil Maintenance', 'Air Conditioning & Ventilation Services', 'Security & Surveillance', 'Housekeeping Services', 'Fire Safety Systems', 'Water Supply & Sewage Management', 'Equipment Support'];
-     let deptPrompt = "Enter the NUMBER of the correct department:\n\n";
+const depts = ['Civil Maintenance', 'Air Conditioning & Ventilation Services'];     let deptPrompt = "Enter the NUMBER of the correct department:\n\n";
      depts.forEach((d, i) => deptPrompt += `${i+1}. ${d}\n`);
 
      const input = prompt(deptPrompt);
