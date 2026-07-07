@@ -1627,7 +1627,6 @@ const technicianModules = [
     });
 
     // Create a new request safely
-   // Create a new request safely
     async function executeCreateTicket() {
         const reqBuild = document.getElementById('req-build').value;
         const reqLoc = document.getElementById('req-loc').value.trim();
@@ -1653,7 +1652,7 @@ const technicianModules = [
                     ticket_id: 'REQ-' + Math.floor(Math.random() * 9000 + 1000), 
                     user_name: sessionStorage.getItem('hub_name'), 
                     role: loggedInRole, 
-                    department: "Auto-Assigned by AI", // NLP AI in backend overrides this!
+                    department: "Auto-Assigned by AI", 
                     building: reqBuild, 
                     location: reqLoc, 
                     issue: reqIssue, 
@@ -1662,7 +1661,6 @@ const technicianModules = [
             });
             const data = await response.json();
             
-            // ---> NEW DUPLICATE HANDLING LOGIC <---
             if (data.status === 'duplicate') {
                 alert(`🛑 DUPLICATE DETECTED: \n\n${data.message}`);
                 document.getElementById('req-build').value = '';
@@ -1686,48 +1684,6 @@ const technicianModules = [
         }
     }
 
-            const response = await fetch('/api/tickets', { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify({ 
-                    ticket_id: 'REQ-' + Math.floor(Math.random() * 9000 + 1000), 
-                    user_name: sessionStorage.getItem('hub_name'), 
-                    role: loggedInRole, 
-                    department: reqDept, 
-                    building: reqBuild, 
-                    location: reqLoc, 
-                    issue: reqIssue, 
-                    photo_attached: "None" 
-                }) 
-            });
-            const data = await response.json();
-            
-            // ---> NEW DUPLICATE HANDLING LOGIC <---
-        if (data.status === 'duplicate') {
-            alert(`🛑 DUPLICATE DETECTED: \n\n${data.message}`);
-            // Clear the form anyway since the issue is known
-            document.getElementById('req-dept').value = '';
-            document.getElementById('req-build').value = '';
-            document.getElementById('req-loc').value = '';
-            document.getElementById('req-issue').value = '';
-            return;
-        }
-        
-        if (!response.ok || data.status !== 'success') {
-            alert('❌ Server rejected it: ' + (data.message || response.statusText));
-            return;
-        }
-
-        alert('✅ Ticket routed successfully by the AI Agents!'); 
-        document.getElementById('req-dept').value = '';
-        document.getElementById('req-build').value = '';
-        document.getElementById('req-loc').value = '';
-        document.getElementById('req-issue').value = '';
-        loadModule(userModules[0]);
-        } catch (error) { 
-            alert("❌ Frontend Error! Could not connect to Python backend."); 
-        }
-    }
     window.askAiForHelp = async function() {
         const issue = document.getElementById('req-issue').value.trim();
         if (!issue) return alert("Please describe your issue in the box first so the AI knows how to help!");
