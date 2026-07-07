@@ -5,3 +5,4 @@ google-genai
 Flask-Mail
 gunicorn
 psycopg2-binary
+twilio==8.2.1
