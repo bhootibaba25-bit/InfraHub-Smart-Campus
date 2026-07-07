@@ -16,7 +16,9 @@ from google.genai import types
 from flask_mail import Mail, Message
 from psycopg2 import pool
 from twilio.twiml.messaging_response import MessagingResponse
-import random
+from twilio.request_validator import RequestValidator
+from functools import wraps
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # ==========================================
 # 1. SECURE SETUP & EMAIL CONFIGURATION
@@ -40,7 +42,7 @@ app.config['MAIL_USERNAME'] = os.getenv("MAIL_USERNAME")
 app.config['MAIL_PASSWORD'] = os.getenv("MAIL_PASSWORD")
 mail = Mail(app)
 
-otp_store = {}
+
 
 # ==========================================
 # 1.5 EMAIL NOTIFICATION BOT (BACKGROUND THREADS)
@@ -61,7 +63,7 @@ def notify_status_change(ticket_id, new_status, db_conn=None):
             SELECT t.user_name, u.email 
             FROM tickets t 
             JOIN users u ON t.user_name = u.name 
-            WHERE t.ticket_id = ?
+            WHERE t.ticket_id = %s
         '''
         user = conn.execute(query, (ticket_id,)).fetchone()
         
@@ -99,28 +101,17 @@ class DBConnection:
         self.conn = db_pool.getconn()
         self.conn.autocommit = True 
 
+    
     def execute(self, query, params=()):
+        # PostgreSQL uses %s placeholders, NOT ?
         pg_query = query.replace('?', '%s')
-        pg_query = pg_query.replace("datetime('now', '-24 hours')", "NOW() - INTERVAL '24 hours'")
-        pg_query = pg_query.replace("date('now', 'localtime')", "CURRENT_DATE")
-        pg_query = pg_query.replace("CURRENT_TIMESTAMP", "NOW()")
         
-        if "julianday(" in pg_query:
-            pg_query = """
-                UPDATE tickets 
-                SET status = 'Resolved', 
-                    resolution_photo = %s,
-                    time_taken_mins = COALESCE(CAST(EXTRACT(EPOCH FROM (NOW() - COALESCE(started_at, created_at))) / 60 AS INTEGER), 1),
-                    last_updated_at = NOW() 
-                WHERE ticket_id = %s
-            """
-            
         cursor = self.conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(pg_query, params)
         return cursor
-
+    
     def executemany(self, query, param_list):
-        pg_query = query.replace('?', '%s')
+        pg_query = query.replace('%s', '%s')
         cursor = self.conn.cursor()
         cursor.executemany(pg_query, param_list)
         return cursor
@@ -150,6 +141,9 @@ def init_db():
         conn.execute('''CREATE TABLE IF NOT EXISTS shift_trades (id SERIAL PRIMARY KEY, requester TEXT, department TEXT, target_date TEXT, status TEXT DEFAULT 'Pending')''')
         conn.execute('''CREATE TABLE IF NOT EXISTS leave_requests (id SERIAL PRIMARY KEY, tech_name TEXT, start_date TEXT, end_date TEXT, reason TEXT, status TEXT DEFAULT 'Pending')''')
         conn.execute('''CREATE TABLE IF NOT EXISTS tool_checkouts (id SERIAL PRIMARY KEY, tool_name TEXT, tech_name TEXT, checkout_date TIMESTAMP DEFAULT NOW(), status TEXT DEFAULT 'Borrowed')''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS password_resets (email TEXT PRIMARY KEY, otp TEXT, created_at TIMESTAMP DEFAULT NOW())''')
+        
+        
 
         inv_check = conn.execute("SELECT COUNT(*) as count FROM inventory").fetchone()['count']
         if inv_check == 0:
@@ -167,7 +161,7 @@ def init_db():
                 ('Crompton Submersible Pump (1HP)', 'Water Supply & Sewage Management', 1, 1, 8500.00),
                 ('Fluke Digital Multimeter', 'Equipment Support', 3, 2, 3400.00)
             ]
-            conn.executemany("INSERT INTO inventory (item_name, category, stock_level, reorder_threshold, unit_price) VALUES (?, ?, ?, ?, ?)", seed_items)
+            conn.executemany("INSERT INTO inventory (item_name, category, stock_level, reorder_threshold, unit_price) VALUES (%s, %s, %s, %s, %s)", seed_items)
 
         admin_check = conn.execute("SELECT COUNT(*) as count FROM users WHERE email = 'admin@campus.edu'").fetchone()['count']
         if admin_check == 0:
@@ -195,9 +189,9 @@ def init_db():
             
             for dept, tech_name, tech_email in tech_roster:
                 conn.execute('''INSERT INTO users (name, email, password, role, account_status) 
-                             VALUES (?, ?, 'Tech123!', 'Campus Technician', 'Approved')''', (tech_name, tech_email))
+                             VALUES (%s, %s, 'Tech123!', 'Campus Technician', 'Approved')''', (tech_name, tech_email))
                 conn.execute('''INSERT INTO technicians (name, department, is_on_shift, account_status) 
-                             VALUES (?, ?, 0, 'Approved')''', (tech_name, dept))
+                             VALUES (%s, %s, 0, 'Approved')''', (tech_name, dept))
 
     except Exception as e:
         print("Init DB Error:", e)
@@ -207,7 +201,7 @@ def init_db():
 def log_audit(user, action, target, db_conn=None):
     conn = db_conn or get_db_connection()
     try:
-        conn.execute('INSERT INTO audit_logs ("user", action, target) VALUES (?, ?, ?)', (user, action, target))
+        conn.execute('INSERT INTO audit_logs ("user", action, target) VALUES (%s, %s, %s)', (user, action, target))
     except Exception as e:
         print("Audit Log Error:", e)
     finally:
@@ -217,7 +211,7 @@ def log_audit(user, action, target, db_conn=None):
 def add_notification(target_user, target_role, message, is_urgent=0, db_conn=None):
     conn = db_conn or get_db_connection()
     try:
-        conn.execute('INSERT INTO system_notifications (target_user, target_role, message, is_urgent) VALUES (?, ?, ?, ?)', (target_user, target_role, message, is_urgent))
+        conn.execute('INSERT INTO system_notifications (target_user, target_role, message, is_urgent) VALUES (%s, %s, %s, %s)', (target_user, target_role, message, is_urgent))
     except Exception as e:
         print("Notification Error:", e)
     finally:
@@ -232,10 +226,10 @@ def tool_get_available_technician(department, ticket_building=None, db_conn=None
     try:
         query = '''
             SELECT t.name, 
-                   (t.current_building = ?) as is_close,
+                   (t.current_building = %s) as is_close,
                    (SELECT COUNT(*) FROM tickets WHERE assigned_technician = t.name AND status IN ('Assigned', 'In Progress', 'Pending')) as total_tasks
             FROM technicians t
-            WHERE (t.department = ? OR t.department LIKE ?) AND t.is_on_shift = 1 AND t.on_break = 0
+            WHERE (t.department = %s OR t.department LIKE %s) AND t.is_on_shift = 1 AND t.on_break = 0
             ORDER BY is_close DESC, total_tasks ASC
         '''
         available_techs = conn.execute(query, (ticket_building, department, f'%{department}%')).fetchall()
@@ -250,16 +244,16 @@ def tool_get_available_technician(department, ticket_building=None, db_conn=None
 def tool_assign_ticket(ticket_id, technician_name, estimated_task_hours=2, db_conn=None):
     conn = db_conn or get_db_connection()
     try:
-        tech = conn.execute("SELECT current_active_hours, max_shift_hours FROM technicians WHERE name = ?", (technician_name,)).fetchone()
+        tech = conn.execute("SELECT current_active_hours, max_shift_hours FROM technicians WHERE name = %s", (technician_name,)).fetchone()
         
         max_hrs = tech['max_shift_hours'] if tech and tech['max_shift_hours'] else 8
         current_hrs = tech['current_active_hours'] if tech and tech['current_active_hours'] else 0
         
         if tech and (current_hrs + estimated_task_hours) <= max_hrs:
-            conn.execute("UPDATE tickets SET assigned_technician = ?, status = 'Assigned' WHERE ticket_id = ?", (technician_name, ticket_id))
+            conn.execute("UPDATE tickets SET assigned_technician = %s, status = 'Assigned' WHERE ticket_id = %s", (technician_name, ticket_id))
             notify_status_change(ticket_id, 'Assigned', db_conn=conn)
         else:
-            conn.execute("UPDATE tickets SET assigned_technician = ?, status = 'Pending' WHERE ticket_id = ?", (technician_name, ticket_id))
+            conn.execute("UPDATE tickets SET assigned_technician = %s, status = 'Pending' WHERE ticket_id = %s", (technician_name, ticket_id))
             
         return {"status": "success"}
     finally:
@@ -319,12 +313,12 @@ def register():
         requested_role = data.get('role')
         status = 'Pending' if requested_role in ['Portal Admin', 'Campus Technician', 'Master Technician'] else 'Approved'
             
-        conn.execute('INSERT INTO users (name, email, password, role, account_status) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING', 
+        conn.execute('INSERT INTO users (name, email, password, role, account_status) VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING', 
                      (data['name'], data['email'], data['password'], requested_role, status))
         
         if requested_role == 'Campus Technician':
             dept = data.get('department', 'Pending Assignment')
-            conn.execute('INSERT INTO technicians (name, department, current_active_hours, max_shift_hours, is_on_shift, account_status) VALUES (?, ?, ?, ?, ?, ?)', 
+            conn.execute('INSERT INTO technicians (name, department, current_active_hours, max_shift_hours, is_on_shift, account_status) VALUES (%s, %s, %s, %s, %s, %s)', 
                          (data['name'], dept, 0, 8, 0, status))        
         
         msg = "Account created successfully! You can log in immediately." if status == 'Approved' else "Account registration submitted! Awaiting Master Admin approval before access is granted."
@@ -383,7 +377,7 @@ def login():
     
     conn = get_db_connection()
     try:
-        user = conn.execute('SELECT * FROM users WHERE LOWER(TRIM(email)) = ? AND password = ?', (email, password)).fetchone()
+        user = conn.execute('SELECT * FROM users WHERE LOWER(TRIM(email)) = %s AND password = %s', (email, password)).fetchone()
         if user: 
             if user['account_status'] == 'Pending':
                 return jsonify({"status": "error", "message": "Access Denied: Your account is currently awaiting Master Admin validation."}), 403
@@ -400,12 +394,12 @@ def forgot_password():
     email = request.json.get('email')
     conn = get_db_connection()
     try:
-        user = conn.execute('SELECT * FROM users WHERE LOWER(email) = LOWER(?)', (email,)).fetchone()
+        user = conn.execute('SELECT * FROM users WHERE LOWER(email) = LOWER(%s)', (email,)).fetchone()
         if not user: 
             return jsonify({"status": "error", "message": "Email not found in our database."})
         
         otp = str(random.randint(100000, 999999))
-        otp_store[email.lower()] = otp
+        conn.execute('INSERT INTO password_resets (email, otp) VALUES (%s, %s) ON CONFLICT (email) DO UPDATE SET otp = EXCLUDED.otp, created_at = NOW()', (email.lower(), otp))
         try:
             msg = Message("InfraHub OTP Reset", sender=app.config['MAIL_USERNAME'], recipients=[email])
             msg.body = f"Your password reset OTP is: {otp}"
@@ -420,24 +414,30 @@ def forgot_password():
 @app.route('/api/reset-password', methods=['POST'])
 def reset_password():
     data = request.json
-    email = data.get('email').lower()
+    email = data.get('email', '').lower()
     otp = data.get('otp')
     new_password = data.get('new_password')
-    if email in otp_store and otp_store[email] == otp:
-        conn = get_db_connection()
-        try:
-            conn.execute('UPDATE users SET password = ? WHERE LOWER(email) = ?', (new_password, email))
-            user = conn.execute('SELECT * FROM users WHERE LOWER(email) = ?', (email,)).fetchone()
+
+    conn = get_db_connection()
+    try:
+        # Check DB instead of local memory dictionary
+        record = conn.execute('SELECT otp FROM password_resets WHERE email = %s', (email,)).fetchone()
+
+        if record and record['otp'] == otp:
+            conn.execute('UPDATE users SET password = %s WHERE LOWER(email) = %s', (new_password, email))
+            user = conn.execute('SELECT * FROM users WHERE LOWER(email) = %s', (email,)).fetchone()
             if user: 
                 add_notification(user['name'], None, "Security Alert: Your password was recently changed.", db_conn=conn)
-            del otp_store[email]
+
+            # Delete the used OTP
+            conn.execute('DELETE FROM password_resets WHERE email = %s', (email,))
             return jsonify({"status": "success", "message": "Password reset successfully."})
-        except Exception as e: 
-            return jsonify({"status": "error", "message": "Database error during reset."}), 500
-        finally:
-            conn.close()
-    else: 
-        return jsonify({"status": "error", "message": "Invalid or expired OTP."}), 400
+        else: 
+            return jsonify({"status": "error", "message": "Invalid or expired OTP."}), 400
+    except Exception as e: 
+        return jsonify({"status": "error", "message": "Database error during reset."}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/users', methods=['GET'])
 def get_users():
@@ -487,7 +487,7 @@ def create_ticket():
 
         duplicate_check = conn.execute('''
             SELECT ticket_id, status FROM tickets
-            WHERE building = ? AND location = ? AND department = ? AND status NOT IN ('Resolved', 'Closed', 'Cancelled')
+            WHERE building = %s AND location = %s AND department = %s AND status NOT IN ('Resolved', 'Closed', 'Cancelled')
         ''', (bldg, loc, ticket_dept)).fetchone()
 
         if duplicate_check:
@@ -496,7 +496,7 @@ def create_ticket():
                 "message": f"Duplicate Prevented: Our {ticket_dept} team is already working on an active issue in {bldg} - {loc}!"
             }), 400
         
-        conn.execute('INSERT INTO tickets (ticket_id, user_name, role, department, building, location, issue, photo_attached, priority, ai_analysis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+        conn.execute('INSERT INTO tickets (ticket_id, user_name, role, department, building, location, issue, photo_attached, priority, ai_analysis) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)', 
             (data['ticket_id'], data['user_name'], data['role'], ai_decision['department'], data['building'], data['location'], data['issue'], photo, ai_decision['priority'], ai_decision['ai_analysis']))
         
         add_notification(data['user_name'], None, f"Request {data['ticket_id']} successfully sent. AI is analyzing your issue.", db_conn=conn)
@@ -526,9 +526,9 @@ def get_tickets():
         if role in ['Portal Admin', 'Master Technician']:
             tickets = conn.execute("SELECT * FROM tickets WHERE status != 'Cancelled' ORDER BY created_at DESC").fetchall()
         elif role == 'Campus Technician':
-            tickets = conn.execute("SELECT * FROM tickets WHERE assigned_technician = ? AND status != 'Cancelled' ORDER BY created_at DESC", (user_name,)).fetchall()
+            tickets = conn.execute("SELECT * FROM tickets WHERE assigned_technician = %s AND status != 'Cancelled' ORDER BY created_at DESC", (user_name,)).fetchall()
         else: 
-            tickets = conn.execute("SELECT * FROM tickets WHERE user_name = ? AND status != 'Cancelled' ORDER BY created_at DESC", (user_name,)).fetchall()
+            tickets = conn.execute("SELECT * FROM tickets WHERE user_name = %s AND status != 'Cancelled' ORDER BY created_at DESC", (user_name,)).fetchall()
             
         return jsonify({"status": "success", "data": [dict(t) for t in tickets]}), 200
     except Exception as e: 
@@ -540,7 +540,7 @@ def get_tickets():
 def delete_ticket(ticket_id):
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE tickets SET status = 'Cancelled' WHERE ticket_id = ?", (ticket_id,))
+        conn.execute("UPDATE tickets SET status = 'Cancelled' WHERE ticket_id = %s", (ticket_id,))
         log_audit(request.args.get('name', 'Admin'), 'DELETED_TICKET', ticket_id, db_conn=conn)
         return jsonify({"status": "success"}), 200
     except Exception as e: 
@@ -555,17 +555,17 @@ def accept(ticket_id):
     conn = get_db_connection()
     try:
         if tech_name:
-            tech = conn.execute("SELECT is_on_shift FROM technicians WHERE name = ?", (tech_name,)).fetchone()
+            tech = conn.execute("SELECT is_on_shift FROM technicians WHERE name = %s", (tech_name,)).fetchone()
             if tech and tech['is_on_shift'] == 0:
                 return jsonify({"status": "error", "message": "Action Denied: You cannot accept tasks while Off Duty. Please Clock In first."}), 403
 
-        ticket = conn.execute('SELECT * FROM tickets WHERE ticket_id = ?', (ticket_id,)).fetchone()
+        ticket = conn.execute('SELECT * FROM tickets WHERE ticket_id = %s', (ticket_id,)).fetchone()
         
         # THE FIX: We must update BOTH the status and the assigned_technician column!
         if tech_name:
-            conn.execute("UPDATE tickets SET status = 'In Progress', assigned_technician = ?, started_at = NOW() WHERE ticket_id = ?", (tech_name, ticket_id))
+            conn.execute("UPDATE tickets SET status = 'In Progress', assigned_technician = %s, started_at = NOW() WHERE ticket_id = %s", (tech_name, ticket_id))
         else:
-            conn.execute("UPDATE tickets SET status = 'In Progress', started_at = NOW() WHERE ticket_id = ?", (ticket_id,))
+            conn.execute("UPDATE tickets SET status = 'In Progress', started_at = NOW() WHERE ticket_id = %s", (ticket_id,))
         
         if ticket: 
             add_notification(ticket['user_name'], None, f"IN PROGRESS: Technician has started working on {ticket_id}.", db_conn=conn)
@@ -581,7 +581,7 @@ def accept(ticket_id):
 def start_ticket(ticket_id):
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE tickets SET status = 'In Progress', started_at = NOW(), last_updated_at = NOW() WHERE ticket_id = ?", (ticket_id,))
+        conn.execute("UPDATE tickets SET status = 'In Progress', started_at = NOW(), last_updated_at = NOW() WHERE ticket_id = %s", (ticket_id,))
         return jsonify({"status": "success"}), 200
     except Exception as e: return jsonify({"status": "error", "message": str(e)}), 500
     finally: conn.close()
@@ -594,13 +594,13 @@ def resolve_ticket(ticket_id):
         conn.execute('''
             UPDATE tickets 
             SET status = 'Resolved', 
-                resolution_photo = ?,
+                resolution_photo = %s,
                 time_taken_mins = COALESCE(CAST(EXTRACT(EPOCH FROM (NOW() - COALESCE(started_at, created_at))) / 60 AS INTEGER), 1),
                 last_updated_at = NOW() 
-            WHERE ticket_id = ?
+            WHERE ticket_id = %s
         ''', (res_photo, ticket_id))
 
-        ticket = conn.execute("SELECT user_name, time_taken_mins FROM tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
+        ticket = conn.execute("SELECT user_name, time_taken_mins FROM tickets WHERE ticket_id = %s", (ticket_id,)).fetchone()
         if ticket:
             add_notification(ticket['user_name'], None, f"Your request {ticket_id} has been resolved! It took our team {ticket['time_taken_mins']} minutes to fix.", db_conn=conn)
 
@@ -618,10 +618,10 @@ def transfer_ticket(ticket_id):
     tech_name = data.get('tech_name')
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE tickets SET department = ?, assigned_technician = 'Unassigned', status = 'Pending', last_updated_at = NOW() WHERE ticket_id = ?", (new_dept, ticket_id))
+        conn.execute("UPDATE tickets SET department = %s, assigned_technician = 'Unassigned', status = 'Pending', last_updated_at = NOW() WHERE ticket_id = %s", (new_dept, ticket_id))
 
         add_notification(None, 'Portal Admin', f"TICKET RE-ROUTED: {tech_name} transferred {ticket_id} to {new_dept}. Reason: {reason}", is_urgent=1, db_conn=conn)
-        ticket = conn.execute("SELECT user_name FROM tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
+        ticket = conn.execute("SELECT user_name FROM tickets WHERE ticket_id = %s", (ticket_id,)).fetchone()
         if ticket:
             add_notification(ticket['user_name'], None, f"Update: Your ticket {ticket_id} was transferred to the {new_dept} department for specialized support.", db_conn=conn)
 
@@ -639,8 +639,8 @@ def request_part(ticket_id):
         part_name = data.get('part_name')
         tech_name = data.get('tech_name')
         
-        conn.execute("UPDATE tickets SET status = 'Awaiting Parts', last_updated_at = NOW() WHERE ticket_id = ?", (ticket_id,))
-        conn.execute("INSERT INTO part_requests (ticket_id, tech_name, part_name) VALUES (?, ?, ?)", (ticket_id, tech_name, part_name))
+        conn.execute("UPDATE tickets SET status = 'Awaiting Parts', last_updated_at = NOW() WHERE ticket_id = %s", (ticket_id,))
+        conn.execute("INSERT INTO part_requests (ticket_id, tech_name, part_name) VALUES (%s, %s, %s)", (ticket_id, tech_name, part_name))
         
         add_notification(None, 'Portal Admin', f"📦 INVENTORY ALERT: {tech_name} requested '{part_name}' for ticket {ticket_id}.", is_urgent=1, db_conn=conn)
         add_notification(tech_name, None, f"Part Requested: '{part_name}'. Admin has been notified.", db_conn=conn)
@@ -657,8 +657,8 @@ def decline_ticket(ticket_id):
     try:
         data = request.json
         reason = data.get('reason', 'No reason provided')
-        ticket = conn.execute('SELECT * FROM tickets WHERE ticket_id = ?', (ticket_id,)).fetchone()
-        conn.execute("UPDATE tickets SET status = 'Decline Requested', decline_reason = ? WHERE ticket_id = ?", (reason, ticket_id))
+        ticket = conn.execute('SELECT * FROM tickets WHERE ticket_id = %s', (ticket_id,)).fetchone()
+        conn.execute("UPDATE tickets SET status = 'Decline Requested', decline_reason = %s WHERE ticket_id = %s", (reason, ticket_id))
         if ticket:
             add_notification(None, 'Portal Admin', f"ACTION REQUIRED: Tech {ticket['assigned_technician']} requested to decline {ticket_id}.", is_urgent=1, db_conn=conn)
             add_notification(ticket['user_name'], None, f"Update: Processing reassignment for {ticket_id} to ensure fastest resolution.", db_conn=conn)
@@ -672,7 +672,7 @@ def decline_ticket(ticket_id):
 def approve_decline(ticket_id):
     conn = get_db_connection()
     try:
-        ticket = conn.execute("SELECT * FROM tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
+        ticket = conn.execute("SELECT * FROM tickets WHERE ticket_id = %s", (ticket_id,)).fetchone()
         if ticket:
             old_tech = ticket['assigned_technician']
             dept = ticket['department']
@@ -681,18 +681,18 @@ def approve_decline(ticket_id):
                 SELECT t.name, 
                        (SELECT COUNT(*) FROM tickets WHERE assigned_technician = t.name AND status IN ('Assigned', 'In Progress', 'Pending')) as total_tasks
                 FROM technicians t
-                WHERE (t.department = ? OR t.department LIKE ?) AND t.is_on_shift = 1 AND t.name != ?
+                WHERE (t.department = %s OR t.department LIKE %s) AND t.is_on_shift = 1 AND t.name != %s
                 ORDER BY total_tasks ASC
             ''', (dept, f'%{dept}%', old_tech)).fetchall()
             
             if new_techs:
                 new_tech_name = new_techs[0]['name']
-                conn.execute("UPDATE tickets SET assigned_technician = ?, status = 'Pending', decline_reason = NULL WHERE ticket_id = ?", (new_tech_name, ticket_id))
+                conn.execute("UPDATE tickets SET assigned_technician = %s, status = 'Pending', decline_reason = NULL WHERE ticket_id = %s", (new_tech_name, ticket_id))
                 add_notification(old_tech, None, f"Admin Approved: You have been removed from ticket {ticket_id}.", db_conn=conn)
                 add_notification(new_tech_name, None, f"REASSIGNED TASK: {ticket_id} has been added to your queue.", db_conn=conn)
                 add_notification(ticket['user_name'], None, f"Update: {ticket_id} reassigned to {new_tech_name}.", db_conn=conn)
             else:
-                conn.execute("UPDATE tickets SET assigned_technician = 'Unassigned', status = 'Pending', decline_reason = NULL WHERE ticket_id = ?", (ticket_id,))
+                conn.execute("UPDATE tickets SET assigned_technician = 'Unassigned', status = 'Pending', decline_reason = NULL WHERE ticket_id = %s", (ticket_id,))
                 add_notification(None, 'Portal Admin', f"Unassigned: {ticket_id} returned to queue. No tech available.", is_urgent=1, db_conn=conn)
         return jsonify({"status": "success"}), 200
     except Exception as e: 
@@ -704,8 +704,8 @@ def approve_decline(ticket_id):
 def reject_decline(ticket_id):
     conn = get_db_connection()
     try:
-        ticket = conn.execute("SELECT * FROM tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
-        conn.execute("UPDATE tickets SET status = 'Assigned', decline_reason = NULL WHERE ticket_id = ?", (ticket_id,))
+        ticket = conn.execute("SELECT * FROM tickets WHERE ticket_id = %s", (ticket_id,)).fetchone()
+        conn.execute("UPDATE tickets SET status = 'Assigned', decline_reason = NULL WHERE ticket_id = %s", (ticket_id,))
         if ticket: 
             add_notification(ticket['assigned_technician'], None, f"ADMIN DENIED DECLINE: You are required to complete {ticket_id}.", is_urgent=1, db_conn=conn)
         return jsonify({"status": "success"}), 200
@@ -721,9 +721,9 @@ def get_notifications():
         role = request.args.get('role')
         name = request.args.get('name')
         if role == 'Portal Admin': 
-            notifs = conn.execute("SELECT * FROM system_notifications WHERE target_user = ? OR target_role = 'Portal Admin' ORDER BY id DESC LIMIT 50", (name,)).fetchall()
+            notifs = conn.execute("SELECT * FROM system_notifications WHERE target_user = %s OR target_role = 'Portal Admin' ORDER BY id DESC LIMIT 50", (name,)).fetchall()
         else: 
-            notifs = conn.execute("SELECT * FROM system_notifications WHERE target_user = ? ORDER BY id DESC LIMIT 50", (name,)).fetchall()
+            notifs = conn.execute("SELECT * FROM system_notifications WHERE target_user = %s ORDER BY id DESC LIMIT 50", (name,)).fetchall()
         return jsonify({"status": "success", "data": [dict(n) for n in notifs]}), 200
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -735,7 +735,7 @@ def mark_read():
     conn = get_db_connection()
     try:
         data = request.json
-        conn.execute("UPDATE system_notifications SET is_read = 1 WHERE target_user = ? OR target_role = ?", (data['name'], data['role']))
+        conn.execute("UPDATE system_notifications SET is_read = 1 WHERE target_user = %s OR target_role = %s", (data['name'], data['role']))
         return jsonify({"status": "success"})
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -761,25 +761,25 @@ def handle_qa_response(ticket_id):
     
     conn = get_db_connection()
     try:
-        ticket = conn.execute("SELECT * FROM tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
+        ticket = conn.execute("SELECT * FROM tickets WHERE ticket_id = %s", (ticket_id,)).fetchone()
         if not ticket:
             return "<h1>Error</h1><p>Ticket not found.</p>", 404
             
         if answer == 'yes':
             conn.execute('''UPDATE tickets 
                             SET status = 'Closed', last_updated_at = NOW(), 
-                                user_rating = ?, user_feedback = ? 
-                            WHERE ticket_id = ?''', (rating, feedback, ticket_id))
+                                user_rating = %s, user_feedback = %s 
+                            WHERE ticket_id = %s''', (rating, feedback, ticket_id))
             
             points_awarded = 10 + (rating * 2) 
-            conn.execute("UPDATE technicians SET points = points + ? WHERE name = ?", (points_awarded, ticket['assigned_technician'])) 
+            conn.execute("UPDATE technicians SET points = points + %s WHERE name = %s", (points_awarded, ticket['assigned_technician'])) 
             
             add_notification(ticket['assigned_technician'], None, f"🎉 QA Passed! +{points_awarded} Points. User rated you {rating} Stars!", db_conn=conn)
             return f"<h1 style='color: #10b981; font-family: sans-serif;'>Thank you!</h1><p style='font-family: sans-serif;'>Your {rating}-star rating has been recorded for {ticket['assigned_technician']}. Have a great day!</p>"
         
         else:
-            conn.execute("UPDATE tickets SET status = 'Escalated', priority = 'Urgent', last_updated_at = NOW() WHERE ticket_id = ?", (ticket_id,))
-            conn.execute("UPDATE technicians SET points = points - 5 WHERE name = ?", (ticket['assigned_technician'],)) 
+            conn.execute("UPDATE tickets SET status = 'Escalated', priority = 'Urgent', last_updated_at = NOW() WHERE ticket_id = %s", (ticket_id,))
+            conn.execute("UPDATE technicians SET points = points - 5 WHERE name = %s", (ticket['assigned_technician'],)) 
             add_notification(None, 'Portal Admin', f"🚨 QA FAILED: {ticket_id} was not fixed properly by {ticket['assigned_technician']}! Escalated to URGENT.", is_urgent=1, db_conn=conn)
             add_notification(ticket['assigned_technician'], None, f"⚠️ QA ALERT: -5 Points. User reported {ticket_id} is STILL BROKEN.", is_urgent=1, db_conn=conn)
             return "<h1 style='color: #ef4444; font-family: sans-serif;'>Apologies!</h1><p style='font-family: sans-serif;'>The ticket has been automatically reopened, escalated to URGENT priority, and the Admin has been notified.</p>"
@@ -794,13 +794,13 @@ def toggle_shift():
     tech_name = data.get('name')
     conn = get_db_connection()
     try:
-        tech = conn.execute("SELECT is_on_shift FROM technicians WHERE name = ?", (tech_name,)).fetchone()
+        tech = conn.execute("SELECT is_on_shift FROM technicians WHERE name = %s", (tech_name,)).fetchone()
         if not tech:
             return jsonify({"status": "error", "message": "Technician not found."}), 404
             
         new_status = 0 if tech['is_on_shift'] == 1 else 1
 
-        conn.execute("UPDATE technicians SET is_on_shift = ? WHERE name = ?", (new_status, tech_name))
+        conn.execute("UPDATE technicians SET is_on_shift = %s WHERE name = %s", (new_status, tech_name))
         
         status_msg = "Clocked In: You are now receiving AI dispatches." if new_status == 1 else "Clocked Out: AI dispatches paused."
         add_notification(tech_name, None, status_msg, db_conn=conn)
@@ -836,19 +836,19 @@ def handle_part_request():
     action = data.get('action') 
     conn = get_db_connection()
     try:
-        part_req = conn.execute("SELECT * FROM part_requests WHERE id = ?", (req_id,)).fetchone()
+        part_req = conn.execute("SELECT * FROM part_requests WHERE id = %s", (req_id,)).fetchone()
         if not part_req: return jsonify({"status": "error", "message": "Request not found"}), 404
         
         if action == 'Approve':
-            conn.execute("UPDATE part_requests SET status = 'Approved' WHERE id = ?", (req_id,))
-            conn.execute("UPDATE tickets SET status = 'In Progress', last_updated_at = NOW() WHERE ticket_id = ?", (part_req['ticket_id'],))
+            conn.execute("UPDATE part_requests SET status = 'Approved' WHERE id = %s", (req_id,))
+            conn.execute("UPDATE tickets SET status = 'In Progress', last_updated_at = NOW() WHERE ticket_id = %s", (part_req['ticket_id'],))
             
-            conn.execute("UPDATE inventory SET stock_level = GREATEST(0, stock_level - 1) WHERE LOWER(item_name) LIKE LOWER(?)", (f"%{part_req['part_name']}%",))
+            conn.execute("UPDATE inventory SET stock_level = GREATEST(0, stock_level - 1) WHERE LOWER(item_name) LIKE LOWER(%s)", (f"%{part_req['part_name']}%",))
             
             add_notification(part_req['tech_name'], None, f"✅ APPROVED: Part '{part_req['part_name']}' is ready for pickup. Ticket {part_req['ticket_id']} resumed.", db_conn=conn)
         else:
-            conn.execute("UPDATE part_requests SET status = 'Denied' WHERE id = ?", (req_id,))
-            conn.execute("UPDATE tickets SET status = 'In Progress', last_updated_at = NOW() WHERE ticket_id = ?", (part_req['ticket_id'],))
+            conn.execute("UPDATE part_requests SET status = 'Denied' WHERE id = %s", (req_id,))
+            conn.execute("UPDATE tickets SET status = 'In Progress', last_updated_at = NOW() WHERE ticket_id = %s", (part_req['ticket_id'],))
             add_notification(part_req['tech_name'], None, f"❌ DENIED: Request for '{part_req['part_name']}' was rejected.", is_urgent=1, db_conn=conn)
             
         return jsonify({"status": "success"}), 200
@@ -902,7 +902,7 @@ def buy_part():
     part_name = request.json.get('part_name')
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE inventory SET stock_level = stock_level + 10 WHERE item_name = ?", (part_name,))
+        conn.execute("UPDATE inventory SET stock_level = stock_level + 10 WHERE item_name = %s", (part_name,))
         add_notification(None, 'Portal Admin', f"📦 PROCUREMENT: 10 units of '{part_name}' ordered and added to local stock.", db_conn=conn)
         return jsonify({"status": "success"})
     finally:
@@ -932,7 +932,7 @@ def monitoring_agent_loop():
                     
                     conn.execute('''INSERT INTO tickets 
                         (ticket_id, user_name, role, department, building, location, issue, priority, ai_analysis) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''', 
                         (pm_ticket_id, 'System AI', 'AI Engine', task['dept'], task['bldg'], task['loc'], task['issue'], 'Low', 'PREVENTIVE MAINTENANCE: Auto-generated scheduled task.'))
                     
                     tech = tool_get_available_technician(task['dept'], db_conn=conn)
@@ -953,7 +953,7 @@ def monitoring_agent_loop():
             
             for q in qa_pending:
                 ticket_id = q['ticket_id']
-                user = conn.execute("SELECT email FROM users WHERE name = ?", (q['user_name'],)).fetchone()
+                user = conn.execute("SELECT email FROM users WHERE name = %s", (q['user_name'],)).fetchone()
                 
                 if user and user['email']:
                     subject = f"Did we fix it? QA Survey for {ticket_id}"
@@ -965,7 +965,7 @@ def monitoring_agent_loop():
                     threading.Thread(target=send_async_email, args=(app, user['email'], subject, body)).start()
                     print(f"🤖 [QA AGENT] Sent quality check email to {q['user_name']} for {ticket_id}")
                 
-                conn.execute("UPDATE tickets SET qa_sent = 1 WHERE ticket_id = ?", (ticket_id,))
+                conn.execute("UPDATE tickets SET qa_sent = 1 WHERE ticket_id = %s", (ticket_id,))
             
             techs = conn.execute("SELECT name, max_shift_hours, overtime_opt_in FROM technicians WHERE is_on_shift = 1 AND on_break = 0").fetchall()
             for t in techs:
@@ -973,34 +973,34 @@ def monitoring_agent_loop():
                 
                 minutes_worked_today = conn.execute('''
                     SELECT SUM(time_taken_mins) as total_mins FROM tickets 
-                    WHERE assigned_technician = ? 
+                    WHERE assigned_technician = %s 
                     AND status IN ('Resolved', 'Closed') 
                     AND DATE(last_updated_at) = CURRENT_DATE
                 ''', (t['name'],)).fetchone()['total_mins'] or 0
                 
                 active_tickets = conn.execute('''
                     SELECT ticket_id FROM tickets 
-                    WHERE assigned_technician = ? AND status IN ('Assigned', 'In Progress', 'Awaiting Parts') 
+                    WHERE assigned_technician = %s AND status IN ('Assigned', 'In Progress', 'Awaiting Parts') 
                     ORDER BY created_at ASC
                 ''', (t['name'],)).fetchall()
                 
                 if len(active_tickets) > 1:
                     excess_count = len(active_tickets) - 1
                     for excess in active_tickets[1:]:
-                        conn.execute("UPDATE tickets SET status = 'Pending' WHERE ticket_id = ?", (excess['ticket_id'],))
+                        conn.execute("UPDATE tickets SET status = 'Pending' WHERE ticket_id = %s", (excess['ticket_id'],))
                     active_tickets = active_tickets[:1]
                 
-                conn.execute("UPDATE technicians SET current_active_hours = ? WHERE name = ?", (minutes_worked_today, t['name']))
+                conn.execute("UPDATE technicians SET current_active_hours = %s WHERE name = %s", (minutes_worked_today, t['name']))
                 
                 if (minutes_worked_today < max_minutes or t['overtime_opt_in'] == 1) and len(active_tickets) == 0:
                     next_ticket = conn.execute('''
                         SELECT ticket_id FROM tickets 
-                        WHERE assigned_technician = ? AND status = 'Pending' 
+                        WHERE assigned_technician = %s AND status = 'Pending' 
                         ORDER BY priority DESC, created_at ASC LIMIT 1
                     ''', (t['name'],)).fetchone()
                     
                     if next_ticket:
-                        conn.execute("UPDATE tickets SET status = 'Assigned' WHERE ticket_id = ?", (next_ticket['ticket_id'],))
+                        conn.execute("UPDATE tickets SET status = 'Assigned' WHERE ticket_id = %s", (next_ticket['ticket_id'],))
                         add_notification(t['name'], None, f"NEW ASSIGNMENT: Task {next_ticket['ticket_id']} assigned.", db_conn=conn)
 
             absent_tasks = conn.execute('''
@@ -1010,12 +1010,12 @@ def monitoring_agent_loop():
             ''').fetchall()
             
             for task in absent_tasks:
-                conn.execute("UPDATE tickets SET assigned_technician = 'Unassigned', status = 'Pending' WHERE ticket_id = ?", (task['ticket_id'],))
+                conn.execute("UPDATE tickets SET assigned_technician = 'Unassigned', status = 'Pending' WHERE ticket_id = %s", (task['ticket_id'],))
                 add_notification(None, 'Portal Admin', f"SYSTEM REBALANCE: {task['assigned_technician']} went off duty. {task['ticket_id']} returned to AI Dispatcher.", is_urgent=1, db_conn=conn)
                 
             overdue = conn.execute("SELECT ticket_id FROM tickets WHERE priority IN ('Urgent', 'High') AND status = 'Pending' AND assigned_technician = 'Unassigned'").fetchall()
             for o in overdue:
-                conn.execute("UPDATE tickets SET status = 'Escalated' WHERE ticket_id = ?", (o['ticket_id'],))
+                conn.execute("UPDATE tickets SET status = 'Escalated' WHERE ticket_id = %s", (o['ticket_id'],))
                 add_notification(None, 'Portal Admin', f"ESCALATION: {o['ticket_id']} is critical and unassigned! Intervene.", is_urgent=1, db_conn=conn)
             
             unassigned = conn.execute("SELECT ticket_id, department, building FROM tickets WHERE assigned_technician = 'Unassigned' AND status IN ('Pending', 'Escalated')").fetchall()
@@ -1045,7 +1045,7 @@ def checkout_tool():
     data = request.json
     conn = get_db_connection()
     try:
-        conn.execute('INSERT INTO tool_checkouts (tool_name, tech_name) VALUES (?, ?)', 
+        conn.execute('INSERT INTO tool_checkouts (tool_name, tech_name) VALUES (%s, %s)', 
                      (data['tool_name'], data['tech_name']))
         return jsonify({"status": "success"})
     except Exception as e:
@@ -1068,7 +1068,7 @@ def get_active_tools():
 def return_tool(log_id):
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE tool_checkouts SET status = 'Returned' WHERE id = ?", (log_id,))
+        conn.execute("UPDATE tool_checkouts SET status = 'Returned' WHERE id = %s", (log_id,))
         return jsonify({"status": "success"})
     finally:
         conn.close()
@@ -1117,7 +1117,7 @@ def get_price_history(item_name):
     from datetime import datetime, timedelta
     conn = get_db_connection()
     try:
-        item = conn.execute("SELECT unit_price FROM inventory WHERE item_name = ?", (item_name,)).fetchone()
+        item = conn.execute("SELECT unit_price FROM inventory WHERE item_name = %s", (item_name,)).fetchone()
         base_price = item['unit_price'] if item else 1000
         
         history = []
@@ -1162,11 +1162,11 @@ def adjust_stock():
     
     conn = get_db_connection()
     try:
-        item = conn.execute("SELECT stock_level FROM inventory WHERE item_name = ?", (item_name,)).fetchone()
+        item = conn.execute("SELECT stock_level FROM inventory WHERE item_name = %s", (item_name,)).fetchone()
         if not item: return jsonify({"status": "error", "message": "Item not found"})
         
         new_stock = max(0, item['stock_level'] + delta)
-        conn.execute("UPDATE inventory SET stock_level = ? WHERE item_name = ?", (new_stock, item_name))
+        conn.execute("UPDATE inventory SET stock_level = %s WHERE item_name = %s", (new_stock, item_name))
         
         return jsonify({"status": "success", "new_stock": new_stock})
     except Exception as e:
@@ -1179,10 +1179,10 @@ def log_inventory_audit():
     data = request.json
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE inventory SET stock_level = GREATEST(0, stock_level - ?) WHERE item_name = ?", 
+        conn.execute("UPDATE inventory SET stock_level = GREATEST(0, stock_level - %s) WHERE item_name = %s", 
                      (data['amount_lost'], data['item_name']))
         
-        conn.execute('INSERT INTO audit_logs ("user", action, target) VALUES (?, ?, ?)', 
+        conn.execute('INSERT INTO audit_logs ("user", action, target) VALUES (%s, %s, %s)', 
                      (data['tech_name'], 'INVENTORY_AUDIT_MISSING', data['item_name']))
         return jsonify({"status": "success"})
     except Exception as e:
@@ -1205,7 +1205,7 @@ def checkout_kit():
             return jsonify({"status": "error", "message": "Kit recipe not found in database."})
         
         for item_name, qty in kits[kit_type]:
-            conn.execute("UPDATE inventory SET stock_level = GREATEST(0, stock_level - ?) WHERE item_name = ?", (qty, item_name))
+            conn.execute("UPDATE inventory SET stock_level = GREATEST(0, stock_level - %s) WHERE item_name = %s", (qty, item_name))
             
         return jsonify({"status": "success", "message": f"{kit_type} checked out successfully!"})
     except Exception as e:
@@ -1367,13 +1367,13 @@ def handle_leaves():
     try:
         if request.method == 'POST':
             data = request.json
-            conn.execute("INSERT INTO leave_requests (tech_name, start_date, end_date, reason) VALUES (?, ?, ?, ?)", 
+            conn.execute("INSERT INTO leave_requests (tech_name, start_date, end_date, reason) VALUES (%s, %s, %s, %s)", 
                          (data['tech_name'], data['start_date'], data['end_date'], data['reason']))
             add_notification(None, 'Portal Admin', f"LEAVE REQUEST: {data['tech_name']} requested time off from {data['start_date']} to {data['end_date']}.", db_conn=conn)
             return jsonify({"status": "success"})
         else:
             tech_name = request.args.get('name')
-            leaves = conn.execute("SELECT * FROM leave_requests WHERE tech_name = ? ORDER BY id DESC", (tech_name,)).fetchall()
+            leaves = conn.execute("SELECT * FROM leave_requests WHERE tech_name = %s ORDER BY id DESC", (tech_name,)).fetchall()
             return jsonify({"status": "success", "data": [dict(l) for l in leaves]})
     finally: conn.close()
 
@@ -1383,12 +1383,12 @@ def handle_trades():
     try:
         if request.method == 'POST':
             data = request.json
-            conn.execute("INSERT INTO shift_trades (requester, department, target_date) VALUES (?, ?, ?)", 
+            conn.execute("INSERT INTO shift_trades (requester, department, target_date) VALUES (%s, %s, %s)", 
                          (data['requester'], data['department'], data['target_date']))
             return jsonify({"status": "success"})
         else:
             dept = request.args.get('department')
-            trades = conn.execute("SELECT * FROM shift_trades WHERE department = ? AND status = 'Pending' ORDER BY id DESC", (dept,)).fetchall()
+            trades = conn.execute("SELECT * FROM shift_trades WHERE department = %s AND status = 'Pending' ORDER BY id DESC", (dept,)).fetchall()
             return jsonify({"status": "success", "data": [dict(t) for t in trades]})
     finally: conn.close()
 
@@ -1396,7 +1396,7 @@ def handle_trades():
 def download_timesheet(tech_name):
     conn = get_db_connection()
     try:
-        tickets = conn.execute("SELECT ticket_id, issue, time_taken_mins, last_updated_at FROM tickets WHERE assigned_technician = ? AND status IN ('Resolved', 'Closed')", (tech_name,)).fetchall()
+        tickets = conn.execute("SELECT ticket_id, issue, time_taken_mins, last_updated_at FROM tickets WHERE assigned_technician = %s AND status IN ('Resolved', 'Closed')", (tech_name,)).fetchall()
         si = StringIO()
         cw = csv.writer(si)
         cw.writerow(['Ticket ID', 'Job Description', 'Minutes Billed', 'Date Completed'])
@@ -1414,9 +1414,9 @@ def get_tech_performance():
     tech_name = request.args.get('name')
     conn = get_db_connection()
     try:
-        feedbacks = conn.execute("SELECT ticket_id, user_name, issue, user_rating, user_feedback, last_updated_at FROM tickets WHERE assigned_technician = ? AND status = 'Closed' AND user_rating > 0 ORDER BY last_updated_at DESC LIMIT 5", (tech_name,)).fetchall()
+        feedbacks = conn.execute("SELECT ticket_id, user_name, issue, user_rating, user_feedback, last_updated_at FROM tickets WHERE assigned_technician = %s AND status = 'Closed' AND user_rating > 0 ORDER BY last_updated_at DESC LIMIT 5", (tech_name,)).fetchall()
         
-        tech = conn.execute("SELECT badges_unlocked, points FROM technicians WHERE name = ?", (tech_name,)).fetchone()
+        tech = conn.execute("SELECT badges_unlocked, points FROM technicians WHERE name = %s", (tech_name,)).fetchone()
         badges_str = tech['badges_unlocked'] if tech and tech['badges_unlocked'] else "Welcome Aboard"
         badges = [b.strip() for b in badges_str.split(',') if b.strip()]
         pts = tech['points'] if tech else 0
@@ -1458,8 +1458,8 @@ def approve_user():
     email = request.json.get('email')
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE users SET account_status = 'Approved' WHERE email = ?", (email,))
-        conn.execute("UPDATE technicians SET account_status = 'Approved' WHERE name = (SELECT name FROM users WHERE email = ?)", (email,))
+        conn.execute("UPDATE users SET account_status = 'Approved' WHERE email = %s", (email,))
+        conn.execute("UPDATE technicians SET account_status = 'Approved' WHERE name = (SELECT name FROM users WHERE email = %s)", (email,))
         return jsonify({"status": "success"})
     except Exception as e: return jsonify({"status": "error"})
     finally: conn.close()
@@ -1470,8 +1470,8 @@ def process_leave():
     decision = request.json.get('status') 
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE leave_requests SET status = ? WHERE id = ?", (decision, req_id))
-        leave = conn.execute("SELECT tech_name FROM leave_requests WHERE id = ?", (req_id,)).fetchone()
+        conn.execute("UPDATE leave_requests SET status = %s WHERE id = %s", (decision, req_id))
+        leave = conn.execute("SELECT tech_name FROM leave_requests WHERE id = %s", (req_id,)).fetchone()
         add_notification(leave['tech_name'], None, f"HR Department Update: Your leave request has been officially {decision.upper()}.", db_conn=conn)
         return jsonify({"status": "success"})
     except Exception as e: return jsonify({"status": "error"})
@@ -1536,7 +1536,7 @@ def update_ticket_status(ticket_id):
     new_status = request.json.get('status')
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE tickets SET status = ?, last_updated_at = NOW() WHERE ticket_id = ?", (new_status, ticket_id))
+        conn.execute("UPDATE tickets SET status = %s, last_updated_at = NOW() WHERE ticket_id = %s", (new_status, ticket_id))
         return jsonify({"status": "success"})
     finally: conn.close()
 
@@ -1545,9 +1545,9 @@ def toggle_break():
     tech_name = request.json.get('name')
     conn = get_db_connection()
     try:
-        tech = conn.execute("SELECT on_break FROM technicians WHERE name = ?", (tech_name,)).fetchone()
+        tech = conn.execute("SELECT on_break FROM technicians WHERE name = %s", (tech_name,)).fetchone()
         new_status = 0 if tech['on_break'] == 1 else 1
-        conn.execute("UPDATE technicians SET on_break = ? WHERE name = ?", (new_status, tech_name))
+        conn.execute("UPDATE technicians SET on_break = %s WHERE name = %s", (new_status, tech_name))
         return jsonify({"status": "success"})
     finally: conn.close()
 
@@ -1556,9 +1556,9 @@ def toggle_overtime():
     tech_name = request.json.get('name')
     conn = get_db_connection()
     try:
-        tech = conn.execute("SELECT overtime_opt_in FROM technicians WHERE name = ?", (tech_name,)).fetchone()
+        tech = conn.execute("SELECT overtime_opt_in FROM technicians WHERE name = %s", (tech_name,)).fetchone()
         new_status = 0 if tech['overtime_opt_in'] == 1 else 1
-        conn.execute("UPDATE technicians SET overtime_opt_in = ? WHERE name = ?", (new_status, tech_name))
+        conn.execute("UPDATE technicians SET overtime_opt_in = %s WHERE name = %s", (new_status, tech_name))
         return jsonify({"status": "success"})
     finally: conn.close()
 
@@ -1567,7 +1567,7 @@ def update_location():
     data = request.json
     conn = get_db_connection()
     try:
-        conn.execute("UPDATE technicians SET current_building = ? WHERE name = ?", (data['building'], data['name']))
+        conn.execute("UPDATE technicians SET current_building = %s WHERE name = %s", (data['building'], data['name']))
         return jsonify({"status": "success"})
     finally: conn.close()
 
@@ -1580,7 +1580,7 @@ def trigger_sos():
     try:
         ticket_id = 'SOS-' + str(random.randint(1000,9999))
         issue = f"EMERGENCY SOS triggered by Technician {tech_name}"
-        conn.execute('INSERT INTO tickets (ticket_id, user_name, role, department, building, location, issue, priority, status, ai_analysis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        conn.execute('INSERT INTO tickets (ticket_id, user_name, role, department, building, location, issue, priority, status, ai_analysis) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
             (ticket_id, tech_name, 'Campus Technician', 'Security & Surveillance', bldg, 'User Live Location', issue, 'Urgent', 'Pending', 'CRITICAL OVERRIDE: SOS Panic Button Pressed.'))
         add_notification(None, 'Portal Admin', f"🚨 SOS ALERT: {tech_name} pressed the panic button at {bldg}!", is_urgent=1, db_conn=conn)
         return jsonify({"status": "success", "ticket_id": ticket_id})
@@ -1603,7 +1603,7 @@ def report_hazard():
         ai_decision = classify_ticket_with_ai(resp)
         ticket_id = 'HAZ-' + str(random.randint(1000,9999))
         
-        conn.execute('INSERT INTO tickets (ticket_id, user_name, role, department, building, location, issue, priority, ai_analysis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        conn.execute('INSERT INTO tickets (ticket_id, user_name, role, department, building, location, issue, priority, ai_analysis) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)',
             (ticket_id, tech_name, 'Campus Technician', ai_decision['department'], bldg, 'Reported via Snap&Report', resp, ai_decision['priority'], ai_decision['ai_analysis']))
         
         tech = tool_get_available_technician(ai_decision['department'], bldg, db_conn=conn)
@@ -1614,13 +1614,27 @@ def report_hazard():
     finally: conn.close()
 
 
-init_db()
-monitor_thread = threading.Thread(target=monitoring_agent_loop, daemon=True)
-monitor_thread.start()
 # ==========================================
 # 5. WHATSAPP AI BOT INTEGRATION (TWILIO)
 # ==========================================
+# ==========================================
+# SECURITY LAYER: VALIDATE TWILIO SIGNATURE
+# ==========================================
+def validate_twilio_request(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Validate that the request actually came from Twilio
+        validator = RequestValidator(os.getenv("TWILIO_AUTH_TOKEN"))
+        signature = request.headers.get('X-Twilio-Signature', '')
+        if validator.validate(request.url, request.form, signature):
+            return f(*args, **kwargs)
+        else:
+            return "Forbidden", 403
+    return decorated_function
+
+# ==========================================
 @app.route('/api/whatsapp', methods=['POST'])
+@validate_twilio_request
 def whatsapp_bot():
     """Receives WhatsApp messages, runs them through Gemini AI, and creates a ticket."""
     # 1. Grab the incoming text and the phone number it came from
@@ -1667,6 +1681,13 @@ def whatsapp_bot():
     reply.body(f"🤖 *InfraHub AI Dispatcher*\n\n✅ *Ticket Created:* {ticket_id}\n*Assigned Dept:* {dept}\n*Priority:* {pri}\n\n_Your request has been logged and a technician will be assigned shortly!_")
     
     return str(resp)
+init_db()
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 if __name__ == '__main__':
+    # Start the monitoring agent ONLY when running the main app, 
+    # preventing duplicates in multi-worker production environments.
+    monitor_thread = threading.Thread(target=monitoring_agent_loop, daemon=True)
+    monitor_thread.start()
+
     app.run(debug=True, port=5005, use_reloader=False)
