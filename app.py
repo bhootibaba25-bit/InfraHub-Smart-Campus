@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from flask_mail import Mail, Message
+from psycopg2 import pool
 
 # ==========================================
 # 1. SECURE SETUP & EMAIL CONFIGURATION
@@ -75,14 +76,26 @@ def notify_status_change(ticket_id, new_status, db_conn=None):
 # ==========================================
 # 2. DATABASE ARCHITECTURE (NEON POSTGRES CLOUD)
 # ==========================================
+
+# Initialize connection pool globally
+db_pool = None
+
+def init_pool():
+    global db_pool
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        raise ValueError("DATABASE_URL is missing! Add your Neon Postgres URL to Render.")
+    # Keep up to 20 database connections open permanently for instant response times
+    db_pool = psycopg2.pool.ThreadedConnectionPool(1, 20, db_url)
+
 class DBConnection:
-    """A brilliant custom wrapper that translates SQLite commands into PostgreSQL automatically!"""
+    """A brilliant custom wrapper that uses Connection Pooling for massive speedups!"""
     def __init__(self):
-        db_url = os.getenv("DATABASE_URL")
-        if not db_url:
-            raise ValueError("DATABASE_URL is missing! Add your Neon Postgres URL to Render.")
-        self.conn = psycopg2.connect(db_url)
-        self.conn.autocommit = True # Prevents transaction crashes
+        if not db_pool:
+            init_pool()
+        # Instantly grab an already-open connection from the pool
+        self.conn = db_pool.getconn()
+        self.conn.autocommit = True 
 
     def execute(self, query, params=()):
         pg_query = query.replace('?', '%s')
@@ -114,7 +127,10 @@ class DBConnection:
         pass
 
     def close(self):
-        self.conn.close()
+        # Crucial: Give the connection back to the pool instead of destroying it!
+        if self.conn:
+            db_pool.putconn(self.conn)
+            self.conn = None
 
 def get_db_connection():
     return DBConnection()
