@@ -799,40 +799,46 @@ const technicianModules = [
         { 
             id: 'new-request', icon: 'fa-plus-circle', name: 'New Request', 
             content: `
-               <select id="reg-tech-dept" style="padding-left: 45px;">
-                        <option value="" disabled selected>Select Your Department...</option>
-                        <option value="IT & Network Services">IT & Network Services</option>
-                        <option value="Equipment Support">Equipment Support</option>
-                        <option value="" disabled>--- Other Depts Locked Until Phase 2 ---</option>
-                    </select>
+                <div class="module-card" style="max-width: 600px; margin: 0 auto; text-align: center; border-top: 4px solid #a855f7;">
+                    <h2 style="color: white; margin-bottom: 10px;"><i class="fa-solid fa-wand-magic-sparkles" style="color: #a855f7;"></i> AI Auto-Routing Enabled</h2>
+                    <p style="color: #cbd5e1; font-size: 0.9rem; margin-bottom: 25px;">Just describe your issue in plain English. The Nexus AI will automatically categorize and dispatch the right technician.</p>
+                    
+                    <form id="new-ticket-form" onsubmit="event.preventDefault(); executeCreateTicket(); return false;" style="text-align: left;">
+                        <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                            <div class="input-group" style="flex: 1; margin-bottom: 0;">
+                                <i class="fa-solid fa-building input-icon"></i>
+                                <select id="req-build" required>
+                                    <option value="" disabled selected>Select Building...</option>
+                                    <option value="Building A">Building A</option>
+                                    <option value="Building B">Building B</option>
+                                    <option value="Building C">Building C</option>
+                                    <option value="Building D1">Building D1</option>
+                                    <option value="Building D2">Building D2</option>
+                                    <option value="Library Building">Library Building</option>
+                                    <option value="Main Building">Main Building</option>
+                                </select>
+                            </div>
+                            <div class="input-group" style="flex: 1; margin-bottom: 0;">
+                                <i class="fa-solid fa-location-dot input-icon"></i>
+                                <input type="text" id="req-loc" placeholder="Room / Area" required>
+                            </div>
                         </div>
+                        
                         <div class="input-group">
-                            <select id="req-build" required style="padding-left:16px;">
-                                <option value="" disabled selected>Select Building...</option>
-                                <option value="Building A">Building A</option>
-                                <option value="Building B">Building B</option>
-                                <option value="Building C">Building C</option>
-                                <option value="Building D1">Building D1</option>
-                                <option value="Building D2">Building D2</option>
-                                <option value="Library Building">Library Building</option>
-                                <option value="Main Building">Main Building</option>
-                            </select>
+                            <textarea id="req-issue" rows="5" placeholder="Describe the problem (e.g., 'My laptop screen is flickering and the internet is dead')" required style="padding: 20px; padding-bottom: 45px;"></textarea>
+                            <button type="button" onclick="askAiForHelp()" style="position: absolute; bottom: 12px; right: 12px; background: #a855f7; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: bold; transition: 0.2s;"><i class="fa-solid fa-lightbulb"></i> Ask AI for Quick Fix</button>
                         </div>
-                        <div class="input-group">
-                            <input type="text" id="req-loc" placeholder="Exact Location (Room/Floor)" required>
-                        </div>
-                        <div class="input-group">
-                            <textarea id="req-issue" rows="4" placeholder="Describe the problem to the Helpdesk Agent..." required></textarea>
-                            <button type="button" onclick="askAiForHelp()" style="position: absolute; bottom: 10px; right: 10px; background: #a855f7; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: bold; transition: 0.2s;"><i class="fa-solid fa-wand-magic-sparkles"></i> Ask AI for Quick Fix</button>
-                        </div>
+                        
                         <div id="ai-tip-box" class="hidden" style="background: rgba(168, 85, 247, 0.1); border: 1px solid #a855f7; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #e2e8f0; font-size: 0.95rem; line-height: 1.5;">
                             <strong><i class="fa-solid fa-robot"></i> AI Troubleshooting:</strong> <br><span id="ai-tip-text"></span>
                         </div>
+                        
                         <div class="input-group" style="margin-bottom: 25px;">
-                            <label style="color:rgba(255,255,255,0.8); margin-bottom:8px; display:block; font-size: 0.85rem; font-weight:bold;">Attach Picture (Optional)</label>
+                            <label style="color:rgba(255,255,255,0.8); margin-bottom:8px; display:block; font-size: 0.85rem; font-weight:bold;"><i class="fa-solid fa-camera"></i> Attach Picture (Optional)</label>
                             <input type="file" id="req-photo" accept="image/*" style="padding: 12px; background: rgba(255,255,255,0.9); border-radius: 12px; width: 100%; border: none;">
                         </div>
-                        <button type="submit" class="primary-btn">Submit Request</button>
+                        
+                        <button type="submit" class="primary-btn" style="background: #38bdf8; color: #0f172a; font-size: 1.05rem;"><i class="fa-solid fa-paper-plane"></i> Submit Request</button>
                     </form>
                 </div>
             ` 
@@ -1621,24 +1627,64 @@ const technicianModules = [
     });
 
     // Create a new request safely
+   // Create a new request safely
     async function executeCreateTicket() {
-        const reqDept = document.getElementById('req-dept').value;
         const reqBuild = document.getElementById('req-build').value;
         const reqLoc = document.getElementById('req-loc').value.trim();
         const reqIssue = document.getElementById('req-issue').value.trim();
 
-        if (!reqDept || !reqBuild || !reqLoc || !reqIssue) {
+        if (!reqBuild || !reqLoc || !reqIssue) {
             alert("Please fill out all required fields to submit a request.");
             return;
         }
 
         try {
             let photoData = "None";
-        const photoInput = document.getElementById('req-photo');
-        if (photoInput && photoInput.files.length > 0) {
-            try { photoData = await window.fileToBase64(photoInput.files[0]); } 
-            catch(e) { console.error("Error reading image", e); }
+            const photoInput = document.getElementById('req-photo');
+            if (photoInput && photoInput.files.length > 0) {
+                try { photoData = await window.fileToBase64(photoInput.files[0]); } 
+                catch(e) { console.error("Error reading image", e); }
+            }
+
+            const response = await fetch('/api/tickets', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify({ 
+                    ticket_id: 'REQ-' + Math.floor(Math.random() * 9000 + 1000), 
+                    user_name: sessionStorage.getItem('hub_name'), 
+                    role: loggedInRole, 
+                    department: "Auto-Assigned by AI", // NLP AI in backend overrides this!
+                    building: reqBuild, 
+                    location: reqLoc, 
+                    issue: reqIssue, 
+                    photo_attached: photoData 
+                }) 
+            });
+            const data = await response.json();
+            
+            // ---> NEW DUPLICATE HANDLING LOGIC <---
+            if (data.status === 'duplicate') {
+                alert(`🛑 DUPLICATE DETECTED: \n\n${data.message}`);
+                document.getElementById('req-build').value = '';
+                document.getElementById('req-loc').value = '';
+                document.getElementById('req-issue').value = '';
+                return;
+            }
+            
+            if (!response.ok || data.status !== 'success') {
+                alert('❌ Server rejected it: ' + (data.message || response.statusText));
+                return;
+            }
+
+            alert('✅ Ticket routed successfully by the AI Agents!'); 
+            document.getElementById('req-build').value = '';
+            document.getElementById('req-loc').value = '';
+            document.getElementById('req-issue').value = '';
+            loadModule(userModules[0]);
+        } catch (error) { 
+            alert("❌ Frontend Error! Could not connect to Python backend."); 
         }
+    }
 
             const response = await fetch('/api/tickets', { 
                 method: 'POST', 
