@@ -15,6 +15,8 @@ from google import genai
 from google.genai import types
 from flask_mail import Mail, Message
 from psycopg2 import pool
+from twilio.twiml.messaging_response import MessagingResponse
+import random
 
 # ==========================================
 # 1. SECURE SETUP & EMAIL CONFIGURATION
@@ -1615,6 +1617,56 @@ def report_hazard():
 init_db()
 monitor_thread = threading.Thread(target=monitoring_agent_loop, daemon=True)
 monitor_thread.start()
+# ==========================================
+# 5. WHATSAPP AI BOT INTEGRATION (TWILIO)
+# ==========================================
+@app.route('/api/whatsapp', methods=['POST'])
+def whatsapp_bot():
+    """Receives WhatsApp messages, runs them through Gemini AI, and creates a ticket."""
+    # 1. Grab the incoming text and the phone number it came from
+    incoming_msg = request.values.get('Body', '').strip()
+    sender_number = request.values.get('From', '').replace('whatsapp:', '')
+    
+    # 2. Run the message through your existing Gemini AI Dispatcher!
+    ai_decision = classify_ticket_with_ai(incoming_msg)
+    dept = ai_decision.get("department", "Civil Maintenance")
+    pri = ai_decision.get("priority", "Medium")
+    analysis = ai_decision.get("ai_analysis", "Routed via WhatsApp Bot")
+    
+    # 3. Create a Ticket ID
+    ticket_id = f"REQ-{random.randint(1000, 9999)}"
+    
+    # 4. Save it instantly to the Neon PostgreSQL database
+    conn = get_db_connection()
+    try:
+        conn.execute("""
+            INSERT INTO tickets 
+            (ticket_id, user_name, role, department, building, location, issue, priority, status, assigned_technician, ai_analysis)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            ticket_id, 
+            f"WhatsApp User ({sender_number[-4:]})", # Hides full number for privacy
+            "Campus User", 
+            dept, 
+            "Campus Mobile Report", # Default building since it's a mobile report
+            "Pending Location", 
+            incoming_msg, 
+            pri, 
+            "Pending", 
+            "Unassigned",
+            analysis
+        ))
+    except Exception as e:
+        print(f"WhatsApp DB Error: {e}")
+    finally:
+        conn.close()
+
+    # 5. Formulate the WhatsApp Reply to send back to the user's phone
+    resp = MessagingResponse()
+    reply = resp.message()
+    reply.body(f"🤖 *InfraHub AI Dispatcher*\n\n✅ *Ticket Created:* {ticket_id}\n*Assigned Dept:* {dept}\n*Priority:* {pri}\n\n_Your request has been logged and a technician will be assigned shortly!_")
+    
+    return str(resp)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5005, use_reloader=False)
