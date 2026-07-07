@@ -568,7 +568,12 @@
 
     function safeText(str) {
         if (str === null || str === undefined) return '';
-        return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/[\n\r]+/g, ' ');
+        // Completely encode all single and double quotes into HTML entities 
+        // so they NEVER break an onclick function string!
+        return String(str)
+            .replace(/'/g, '&#39;')
+            .replace(/"/g, '&quot;')
+            .replace(/[\n\r]+/g, ' ');
     }
 
     function cycleBackgroundImage() {
