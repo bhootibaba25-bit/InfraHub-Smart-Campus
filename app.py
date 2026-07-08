@@ -19,6 +19,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 from twilio.request_validator import RequestValidator
 from functools import wraps
 from werkzeug.middleware.proxy_fix import ProxyFix
+from twilio.rest import Client
 
 # ==========================================
 # 1. SECURE SETUP & EMAIL CONFIGURATION
@@ -41,6 +42,16 @@ app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USERNAME'] = os.getenv("MAIL_USERNAME")
 app.config['MAIL_PASSWORD'] = os.getenv("MAIL_PASSWORD")
 mail = Mail(app)
+
+
+# ==========================================
+# TWILIO CLIENT INITIALIZATION
+# ==========================================
+TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
+TWILIO_PHONE_NUMBER = "whatsapp:+14155238886" # Standard Twilio Sandbox Number
+
+twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) if TWILIO_ACCOUNT_SID else None
 
 
 
@@ -142,7 +153,7 @@ def init_db():
         conn.execute('''CREATE TABLE IF NOT EXISTS leave_requests (id SERIAL PRIMARY KEY, tech_name TEXT, start_date TEXT, end_date TEXT, reason TEXT, status TEXT DEFAULT 'Pending')''')
         conn.execute('''CREATE TABLE IF NOT EXISTS tool_checkouts (id SERIAL PRIMARY KEY, tool_name TEXT, tech_name TEXT, checkout_date TIMESTAMP DEFAULT NOW(), status TEXT DEFAULT 'Borrowed')''')
         conn.execute('''CREATE TABLE IF NOT EXISTS password_resets (email TEXT PRIMARY KEY, otp TEXT, created_at TIMESTAMP DEFAULT NOW())''')
-        
+        conn.execute('''CREATE TABLE IF NOT EXISTS whatsapp_sessions (phone_number TEXT PRIMARY KEY, current_state TEXT DEFAULT 'IDLE', temp_issue TEXT, temp_building TEXT, last_interaction TIMESTAMP DEFAULT NOW())''')
         
 
         inv_check = conn.execute("SELECT COUNT(*) as count FROM inventory").fetchone()['count']
@@ -570,13 +581,20 @@ def accept(ticket_id):
         if ticket: 
             add_notification(ticket['user_name'], None, f"IN PROGRESS: Technician has started working on {ticket_id}.", db_conn=conn)
             notify_status_change(ticket_id, 'In Progress', db_conn=conn)
+            
+            # ---> PASTE THIS NEW WHATSAPP CODE HERE <---
+            # If the user's name implies they came from WhatsApp, send them a live update!
+            if "WhatsApp" in ticket['user_name']:
+                # Note: Replace this with your actual registered sandbox phone number!
+                send_whatsapp_update("whatsapp:+918080359798", ticket_id, "In Progress")
+            # ------------------------------------------
         
         return jsonify({"status": "success"}), 200
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
-
+        
 @app.route('/api/tickets/<ticket_id>/start', methods=['PUT'])
 def start_ticket(ticket_id):
     conn = get_db_connection()
@@ -601,8 +619,14 @@ def resolve_ticket(ticket_id):
         ''', (res_photo, ticket_id))
 
         ticket = conn.execute("SELECT user_name, time_taken_mins FROM tickets WHERE ticket_id = %s", (ticket_id,)).fetchone()
+        
         if ticket:
             add_notification(ticket['user_name'], None, f"Your request {ticket_id} has been resolved! It took our team {ticket['time_taken_mins']} minutes to fix.", db_conn=conn)
+
+            # ---> PASTE THIS NEW WHATSAPP CODE HERE <---
+            if "WhatsApp" in ticket['user_name']:
+                send_whatsapp_update("whatsapp:+918080359798", ticket_id, "Resolved", "Check your email for the QA Survey!")
+            # ------------------------------------------
 
         return jsonify({"status": "success"}), 200
     except Exception as e: 
@@ -1636,51 +1660,106 @@ def validate_twilio_request(f):
 @app.route('/api/whatsapp', methods=['POST'])
 @validate_twilio_request
 def whatsapp_bot():
-    """Receives WhatsApp messages, runs them through Gemini AI, and creates a ticket."""
-    # 1. Grab the incoming text and the phone number it came from
     incoming_msg = request.values.get('Body', '').strip()
     sender_number = request.values.get('From', '').replace('whatsapp:', '')
-    
-    # 2. Run the message through your existing Gemini AI Dispatcher!
-    ai_decision = classify_ticket_with_ai(incoming_msg)
-    dept = ai_decision.get("department", "Civil Maintenance")
-    pri = ai_decision.get("priority", "Medium")
-    analysis = ai_decision.get("ai_analysis", "Routed via WhatsApp Bot")
-    
-    # 3. Create a Ticket ID
-    ticket_id = f"REQ-{random.randint(1000, 9999)}"
-    
-    # 4. Save it instantly to the Neon PostgreSQL database
+
+    resp = MessagingResponse()
+    msg = resp.message()
     conn = get_db_connection()
+
     try:
-        conn.execute("""
-            INSERT INTO tickets 
-            (ticket_id, user_name, role, department, building, location, issue, priority, status, assigned_technician, ai_analysis)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            ticket_id, 
-            f"WhatsApp User ({sender_number[-4:]})", # Hides full number for privacy
-            "Campus User", 
-            dept, 
-            "Campus Mobile Report", # Default building since it's a mobile report
-            "Pending Location", 
-            incoming_msg, 
-            pri, 
-            "Pending", 
-            "Unassigned",
-            analysis
-        ))
+        # Fetch or Create Session
+        session = conn.execute("SELECT * FROM whatsapp_sessions WHERE phone_number = %s", (sender_number,)).fetchone()
+        
+        if not session:
+            conn.execute("INSERT INTO whatsapp_sessions (phone_number) VALUES (%s)", (sender_number,))
+            session = {'current_state': 'IDLE'}
+        
+        state = session['current_state']
+
+        if state == 'IDLE':
+            if len(incoming_msg) > 10: 
+                conn.execute("UPDATE whatsapp_sessions SET current_state = 'AWAITING_BUILDING', temp_issue = %s, last_interaction = NOW() WHERE phone_number = %s", (incoming_msg, sender_number))
+                msg.body(f"Got it. You reported: '{incoming_msg}'.\n\nWhere is this issue located? Please select a building:\n1. Main Building\n2. Library Building\n3. Building A\n4. Building B\n5. Building C")
+            else:
+                msg.body("Hi there! To raise a maintenance request, please describe the issue in detail (more than 10 characters).")
+                
+        elif state == 'AWAITING_BUILDING':
+            buildings = {"1": "Main Building", "2": "Library Building", "3": "Building A", "4": "Building B", "5": "Building C"}
+            if incoming_msg in buildings:
+                selected_building = buildings[incoming_msg]
+                conn.execute("UPDATE whatsapp_sessions SET current_state = 'AWAITING_LOCATION', temp_building = %s, last_interaction = NOW() WHERE phone_number = %s", (selected_building, sender_number))
+                msg.body(f"Selected: {selected_building}.\n\nPlease reply with the specific floor and room number (e.g., '2nd Floor, Room 204').")
+            else:
+                msg.body("Invalid selection. Please reply with the number corresponding to the building (1-5).")
+
+        elif state == 'AWAITING_LOCATION':
+            final_location = incoming_msg
+            issue = session['temp_issue']
+            building = session['temp_building']
+            
+            # 1. Run AI Classification
+            ai_decision = classify_ticket_with_ai(issue)
+            dept = ai_decision.get("department", "Civil Maintenance")
+            pri = ai_decision.get("priority", "Medium")
+            analysis = ai_decision.get("ai_analysis", "Routed via WhatsApp Bot")
+            
+            # 2. Create Ticket
+            ticket_id = f"REQ-{random.randint(1000, 9999)}"
+            
+            conn.execute("""
+                INSERT INTO tickets 
+                (ticket_id, user_name, role, department, building, location, issue, priority, status, assigned_technician, ai_analysis)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                ticket_id, 
+                f"WhatsApp User ({sender_number[-4:]})", 
+                "Campus User", 
+                dept, 
+                building, 
+                final_location, 
+                issue, 
+                pri, 
+                "Pending", 
+                "Unassigned",
+                analysis
+            ))
+
+            msg.body(f"✅ *Ticket Created: {ticket_id}*\nAssigned Dept: {dept}\nPriority: {pri}\nLocation: {building}, {final_location}\n\nWe have everything we need. You will receive updates here as the status changes.")
+            
+            # Reset the session back to IDLE
+            conn.execute("UPDATE whatsapp_sessions SET current_state = 'IDLE', temp_issue = NULL, temp_building = NULL WHERE phone_number = %s", (sender_number,))
+
     except Exception as e:
-        print(f"WhatsApp DB Error: {e}")
+        print(f"WhatsApp Workflow Error: {e}")
+        msg.body("I encountered an error processing that request. Please try again.")
     finally:
         conn.close()
 
-    # 5. Formulate the WhatsApp Reply to send back to the user's phone
-    resp = MessagingResponse()
-    reply = resp.message()
-    reply.body(f"🤖 *InfraHub AI Dispatcher*\n\n✅ *Ticket Created:* {ticket_id}\n*Assigned Dept:* {dept}\n*Priority:* {pri}\n\n_Your request has been logged and a technician will be assigned shortly!_")
-    
     return str(resp)
+def send_whatsapp_update(user_phone, ticket_id, new_status, additional_info=""):
+    """Pushes a proactive update via Twilio."""
+    if not twilio_client: return
+
+    # Ensure phone number is formatted for Twilio Sandbox
+    formatted_phone = f"whatsapp:+{user_phone}" if not str(user_phone).startswith("whatsapp:") else user_phone
+    
+    message_body = f"🔔 *Update on {ticket_id}*\n\nStatus: *{new_status}*"
+    
+    if new_status == "In Progress":
+        message_body += f"\n\nA technician has started working on this."
+    elif new_status == "Resolved":
+        message_body += f"\n\nThis issue has been marked as resolved. {additional_info}"
+
+    try:
+        twilio_client.messages.create(
+            from_=TWILIO_PHONE_NUMBER,
+            body=message_body,
+            to=formatted_phone
+        )
+    except Exception as e:
+        print(f"Failed to send Twilio update: {e}")
+
 init_db()
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
