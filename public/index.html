@@ -621,12 +621,7 @@
                         </div>
                         <p id="gemini-briefing-text" style="color: #e2e8f0; margin: 0; font-size: 0.95rem; line-height: 1.5;">Generating real-time operational summary...</p>
                     </div>
-                    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 180px; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 20px;">
-                        <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">CRISIS MANAGEMENT</span>
-                        <button id="btn-lockdown-toggle" onclick="executeCrisisOverride()" style="background: #ef4444; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px; width: 100%; justify-content: center; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); transition: all 0.3s ease;">
-                            <i class="fa-solid fa-shield-radiation"></i> LOCKDOWN AI
-                        </button>
-                    </div>
+                    
                 </div>
 
                 <div style="display: flex; gap: 20px; margin-bottom: 25px; flex-wrap: wrap;">
@@ -1310,16 +1305,7 @@
                             </div>
                         </div>
 
-                        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-                            <div class="module-card" style="flex: 1; min-width: 300px; border-top: 4px solid #ef4444; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding-top: 40px; padding-bottom: 40px;">
-                                <h3 style="color: white; margin-bottom: 10px;"><i class="fa-solid fa-truck-medical"></i> Emergency Override</h3>
-                                <p style="color: #fca5a5; font-size: 0.85rem; margin-bottom: 25px;">Triggers immediate base-wide alert and bypasses AI triage.</p>
-                                
-                                <button onclick="triggerSOS()" style="width: 150px; height: 150px; border-radius: 50%; background: radial-gradient(circle, #ef4444 0%, #991b1b 100%); border: 8px solid rgba(239, 68, 68, 0.3); color: white; font-size: 2.5rem; font-weight: bold; cursor: pointer; box-shadow: 0 0 30px rgba(239, 68, 68, 0.6); transition: all 0.2s;" onmousedown="this.style.transform='scale(0.95)'" onmouseup="this.style.transform='scale(1)'">
-                                    SOS
-                                </button>
-                            </div>
-                        </div>
+                        
                     
                     `;
                 }
@@ -2772,42 +2758,7 @@
         // ↓↓↓ CLEAN RUNTIME ORCHESTRATION PIPELINES ↓↓↓
         let heatmapChart = null;
         let agentHeartbeatInterval = null;
-        let systemLockdownActive = false;
-
-        // Core crisis management engine trigger
-        window.executeCrisisOverride = async function() {
-            systemLockdownActive = !systemLockdownActive;
-            const targetBtn = document.getElementById('btn-lockdown-toggle');
-            
-            if (systemLockdownActive) {
-                targetBtn.innerHTML = `<i class="fa-solid fa-radiation fa-spin"></i> SYSTEM REVOKED`;
-                targetBtn.style.background = '#b91c1c';
-            } else {
-                targetBtn.innerHTML = `<i class="fa-solid fa-shield-radiation"></i> LOCKDOWN AI`;
-                targetBtn.style.background = '#ef4444';
-            }
-
-            try {
-                const res = await fetch('/api/ai/lockdown', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ enabled: systemLockdownActive })
-                });
-                const data = await res.json();
-                if(data.status === 'success') {
-                    const alertBanner = document.getElementById('lockdown-alert-container');
-                    if (alertBanner) {
-                        if (systemLockdownActive) {
-                            alertBanner.style.background = 'rgba(239, 68, 68, 0.12)';
-                            alertBanner.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-                        } else {
-                            alertBanner.style.background = 'rgba(56, 189, 248, 0.08)';
-                            alertBanner.style.borderColor = 'rgba(56, 189, 248, 0.2)';
-                        }
-                    }
-                }
-            } catch (e) { console.error("Crisis relay link broken."); }
-        };
+        
 
         const masterLoadModule = loadModule;
         loadModule = async function(moduleObj) {
@@ -2948,14 +2899,7 @@
             } catch(e) { btn.innerHTML = 'Error'; }
         };
 
-        window.triggerSOS = async function() {
-            if(!confirm("⚠️ DANGER: Are you sure you want to trigger a campus-wide SOS?")) return;
-            try {
-                const res = await fetch('/api/tickets/sos', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: sessionStorage.getItem('hub_name'), building: sessionStorage.getItem('hub_bldg') || 'Unknown'}) });
-                if(res.ok) alert("🚨 SOS TRIGGERED! Admin and security have been notified of your exact location.");
-            } catch(e) {}
-        };
-        // ↑↑↑ END SAFETY CONTROLLERS ↑↑↑
+        
 
 
     window.renderAdminApprovalsView = async function() {
