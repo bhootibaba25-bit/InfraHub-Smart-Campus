@@ -884,41 +884,50 @@ def search_online():
     part_name = request.json.get('part_name')
     try:
         if client: 
-            prompt = f"""Search the live internet for where to buy '{part_name}' in India right now. 
-            Return EXACTLY a JSON array of 3 trusted Indian suppliers (e.g., Moglix, Amazon.in, Flipkart, IndustryBuying). 
-            Each object must contain: "vendor", "price", "delivery", and "url".
-            CRITICAL RULE FOR URLS: Do not try to guess a specific product link. Instead, generate a 'General Search URL' for that website that searches for the part name. 
-            Example for Amazon: 'https://www.amazon.in/s?k={part_name.replace(' ', '+')}'
-            Example for Moglix: 'https://www.moglix.com/search?q={part_name.replace(' ', '+')}'
-            Ensure the URLs are properly formatted for searching."""
-            config = types.GenerateContentConfig(
-                tools=[{"google_search": {}}]
-            )
-            response = client.models.generate_content(
-                model='gemini-2.5-flash', 
-                contents=prompt,
-                config=config
-            )
-            
-            import re
-            import json
-            
-            raw_text = response.text.strip()
-            
-            start_index = raw_text.find('[')
-            end_index = raw_text.rfind(']')
-            
-            if start_index != -1 and end_index != -1 and end_index > start_index:
-                json_clean = raw_text[start_index:end_index + 1]
-                suppliers = json.loads(json_clean)
-                return jsonify({"status": "success", "suppliers": suppliers})
-            else:
-                return jsonify({"status": "error", "message": "AI failed to format data."})
+            try:
+                prompt = f"""Search the live internet for where to buy '{part_name}' in India right now. 
+                Return EXACTLY a JSON array of 3 trusted Indian suppliers (e.g., Moglix, Amazon.in, Flipkart, IndustryBuying). 
+                Each object must contain: "vendor", "price", "delivery", and "url".
+                CRITICAL RULE FOR URLS: Do not try to guess a specific product link. Instead, generate a 'General Search URL' for that website that searches for the part name. 
+                Example for Amazon: 'https://www.amazon.in/s?k={part_name.replace(' ', '+')}'
+                Example for Moglix: 'https://www.moglix.com/search?q={part_name.replace(' ', '+')}'
+                Ensure the URLs are properly formatted for searching."""
+                
+                config = types.GenerateContentConfig(
+                    tools=[{"google_search": {}}]
+                )
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash', 
+                    contents=prompt,
+                    config=config
+                )
+                
+                raw_text = response.text.strip()
+                start_index = raw_text.find('[')
+                end_index = raw_text.rfind(']')
+                
+                if start_index != -1 and end_index != -1 and end_index > start_index:
+                    json_clean = raw_text[start_index:end_index + 1]
+                    suppliers = json.loads(json_clean)
+                    return jsonify({"status": "success", "suppliers": suppliers})
+                else:
+                    raise ValueError("AI failed to format data.")
+                    
+            except Exception as ai_error:
+                print(f"AI Quota Exceeded or Formatting Error: {ai_error}")
+                # GRACEFUL FALLBACK IF GOGEMINI LOCKS US OUT
+                clean_part = part_name.replace(' ', '+')
+                fallback_suppliers = [
+                    {"vendor": "IndustryBuying (Fallback)", "price": "₹ Varies", "delivery": "Check Site", "url": f"https://www.industrybuying.com/search/?q={clean_part}"},
+                    {"vendor": "Amazon Business", "price": "₹ Varies", "delivery": "Check Site", "url": f"https://www.amazon.in/s?k={clean_part}"},
+                    {"vendor": "Moglix", "price": "₹ Varies", "delivery": "Check Site", "url": f"https://www.moglix.com/search?q={clean_part}"}
+                ]
+                return jsonify({"status": "success", "suppliers": fallback_suppliers})
                 
         else:
             return jsonify({"status": "error", "message": "AI not configured."})
     except Exception as e:
-        print("AI Search Error:", e)
+        print("Fatal Search Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/inventory/buy', methods=['POST'])
