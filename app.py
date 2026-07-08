@@ -999,7 +999,7 @@ def monitoring_agent_loop():
                     SELECT SUM(time_taken_mins) as total_mins FROM tickets 
                     WHERE assigned_technician = %s 
                     AND status IN ('Resolved', 'Closed') 
-                    AND DATE(last_updated_at) = CURRENT_DATE
+                    AND (last_updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::DATE = (NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::DATE
                 ''', (t['name'],)).fetchone()['total_mins'] or 0
                 
                 active_tickets = conn.execute('''
@@ -1725,8 +1725,22 @@ def whatsapp_bot():
                 analysis
             ))
 
-            msg.body(f"✅ *Ticket Created: {ticket_id}*\nAssigned Dept: {dept}\nPriority: {pri}\nLocation: {building}, {final_location}\n\nWe have everything we need. You will receive updates here as the status changes.")
-            
+            # ---> NEW: IMMEDIATELY TRIGGER AI DISPATCHER <---
+            tech = tool_get_available_technician(dept, building, db_conn=conn)
+            if tech['status'] == 'success':
+                assigned_name = tech['technician_name']
+                tool_assign_ticket(ticket_id, assigned_name, db_conn=conn)
+                
+                # Notify the assigned Tech on the web portal
+                add_notification(assigned_name, None, f"AI DISPATCH: {ticket_id} (WhatsApp) routed to your queue.", is_urgent=1 if pri == 'Urgent' else 0, db_conn=conn)
+                
+                # Send WhatsApp confirmation with the Tech's name
+                msg.body(f"✅ *Ticket Created: {ticket_id}*\nAssigned Dept: {dept}\nPriority: {pri}\nLocation: {building}, {final_location}\n\nGood news! We have automatically routed this directly to *{assigned_name}*. You will receive updates here as the status changes.")
+            else:
+                # If no tech is on shift, leave it unassigned and alert the Admin
+                add_notification(None, 'Portal Admin', f"WARNING: WhatsApp ticket {ticket_id} could not be assigned. No techs in {dept}!", is_urgent=1, db_conn=conn)
+                msg.body(f"✅ *Ticket Created: {ticket_id}*\nAssigned Dept: {dept}\nPriority: {pri}\nLocation: {building}, {final_location}\n\nYour request is in our system. A technician will be assigned shortly.")
+
             # Reset the session back to IDLE
             conn.execute("UPDATE whatsapp_sessions SET current_state = 'IDLE', temp_issue = NULL, temp_building = NULL WHERE phone_number = %s", (sender_number,))
 
