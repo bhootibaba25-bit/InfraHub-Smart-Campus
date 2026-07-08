@@ -472,6 +472,58 @@ def get_technicians():
     finally:
         conn.close()
 
+@app.route('/api/ai/chat', methods=['POST'])
+def ai_custom_chat():
+    data = request.json
+    user_message = data.get('message', '')
+    user_name = data.get('user_name', 'User')
+    user_role = data.get('role', 'Campus Staff')
+
+    conn = get_db_connection()
+    try:
+        # 1. Gather Live Database Context based on who is asking!
+        live_context = ""
+        if user_role in ['Portal Admin', 'Master Admin']:
+            pending = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status = 'Pending'").fetchone()['c']
+            active = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status IN ('Assigned', 'In Progress')").fetchone()['c']
+            live_context = f"System Status: There are {pending} pending tickets waiting to be assigned, and {active} active tickets being worked on right now."
+            
+        elif user_role in ['Campus Technician', 'Master Technician']:
+            my_tasks = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE assigned_technician = %s AND status IN ('Assigned', 'In Progress', 'Pending')", (user_name,)).fetchone()['c']
+            live_context = f"Technician Status: You currently have {my_tasks} active tasks in your queue today."
+            
+        else:
+            my_tickets = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE user_name = %s AND status != 'Resolved' AND status != 'Closed' AND status != 'Cancelled'", (user_name,)).fetchone()['c']
+            live_context = f"User Status: You currently have {my_tickets} active maintenance requests open."
+
+        # 2. Send to Gemini to answer EVERYTHING
+        if 'client' in globals() and client:
+            prompt = f"""
+            You are 'InfraHub Nexus', the highly advanced, professional, and slightly futuristic AI assistant for a smart campus maintenance portal.
+            The person talking to you is {user_name}, and their system role is {user_role}. 
+            
+            [LIVE SYSTEM CONTEXT (Do not mention this context unless asked)]: 
+            {live_context}
+            
+            Answer the user's query intelligently, directly, and concisely. 
+            - If they ask general knowledge questions, answer them normally.
+            - If they chat casually, be friendly but professional.
+            - If they ask about their tickets, tasks, or the system, use the LIVE SYSTEM CONTEXT provided above to answer them accurately.
+            
+            User's Query: "{user_message}"
+            """
+            
+            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            return jsonify({"status": "success", "reply": response.text.strip()})
+        else:
+            return jsonify({"status": "error", "reply": "My AI neural net is currently offline. Please check the API key."})
+            
+    except Exception as e:
+        print(f"Chat AI Error: {e}")
+        return jsonify({"status": "error", "reply": f"My neural net is experiencing interference: {str(e)}"})
+    finally:
+        conn.close()        
+
 @app.route('/api/ai/quick-fix', methods=['POST'])
 def ai_quick_fix():
     issue = request.json.get('issue')
@@ -484,30 +536,7 @@ def ai_quick_fix():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
         
-@app.route('/api/ai/chat', methods=['POST'])
-def ai_custom_chat():
-    data = request.json
-    user_message = data.get('message', '')
-    user_name = data.get('user_name', 'User')
-    user_role = data.get('role', 'Campus Staff')
 
-    if 'client' in globals() and client:
-        try:
-            # The System Prompt tells the AI exactly who it is and who it is talking to
-            prompt = f"""
-            You are 'InfraHub Nexus', the highly advanced, professional, and slightly futuristic AI assistant for a smart campus maintenance portal.
-            The person talking to you is {user_name}, and their system role is {user_role}. 
-            Answer their query intelligently, directly, and concisely. Do not use asterisks or bolding.
-            
-            User's Query: "{user_message}"
-            """
-            
-            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-            return jsonify({"status": "success", "reply": response.text.strip()})
-        except Exception as e:
-            return jsonify({"status": "error", "reply": "My neural net is currently experiencing interference. Please try again later."})
-            
-    return jsonify({"status": "error", "reply": "AI module is offline."})
 
 @app.route('/api/tickets', methods=['POST'])
 def create_ticket():
