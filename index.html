@@ -441,9 +441,13 @@
                 <div class="ai-speech-options">
                     <button type="button" class="ai-option-btn" onclick="handleQuickReply(1)"><i class="fa-solid fa-arrow-right"></i> How do I raise a new request?</button>
                     <button type="button" class="ai-option-btn" onclick="handleQuickReply(2)"><i class="fa-solid fa-arrow-right"></i> How are you assigning tickets?</button>
-                    <button type="button" class="ai-option-btn" onclick="handleQuickReply(3)"><i class="fa-solid fa-arrow-right"></i> What do the priority levels mean?</button>
+                    
+                    <!-- NEW: Custom Chat Input -->
+                    <div style="display: flex; gap: 10px; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+                        <input type="text" id="custom-chat-input" placeholder="Ask Nexus AI anything..." style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.5); background: rgba(0,0,0,0.4); color: white; outline: none; font-size: 0.85rem;" onkeydown="if(event.key === 'Enter') sendCustomChatMessage()">
+                        <button type="button" onclick="sendCustomChatMessage()" class="primary-btn" style="width: auto; background: #38bdf8; color: #0f172a; padding: 10px 15px;"><i class="fa-solid fa-paper-plane"></i></button>
+                    </div>
                 </div>
-            </div>
         </div>
 
         <button type="button" id="chat-fab" onclick="toggleChat()" style="position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; border-radius: 50%; background: #e08e45; color: white; border: none; font-size: 1.5rem; cursor: pointer; box-shadow: 0 10px 25px rgba(0,0,0,0.3); z-index: 1000; transition: 0.3s;">
@@ -3010,6 +3014,47 @@
             if(!confirm(`Mark this leave request as ${status}?`)) return;
             await fetch('/api/admin/process-leave', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id, status: status}) });
             window.renderAdminApprovalsView();
+        };
+            
+        window.sendCustomChatMessage = async function() {
+            const inputField = document.getElementById('custom-chat-input');
+            const message = inputField.value.trim();
+            if (!message) return;
+
+            // 1. Immediately post the user's message to the chat window
+            appendChatMessage(message, true);
+            inputField.value = '';
+
+            // 2. Create a temporary loading indicator
+            const chatBody = document.getElementById('chat-body');
+            const loadingId = 'loading-' + Date.now();
+            chatBody.innerHTML += `<div id="${loadingId}" class="chat-message chat-bot-message"><i class="fa-solid fa-circle-notch fa-spin"></i> Nexus is processing...</div>`;
+            chatBody.scrollTop = chatBody.scrollHeight;
+
+            // 3. Fetch response from the Python backend
+            try {
+                const res = await fetch('/api/ai/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        message: message, 
+                        user_name: loggedInName, 
+                        role: loggedInRole 
+                    })
+                });
+                const data = await res.json();
+                
+                // 4. Remove loader and display AI text
+                document.getElementById(loadingId).remove();
+                if (data.status === 'success') {
+                    appendChatMessage(data.reply, false);
+                } else {
+                    appendChatMessage("⚠️ Connection to Nexus mainframe lost.", false);
+                }
+            } catch (e) {
+                document.getElementById(loadingId).remove();
+                appendChatMessage("⚠️ Network link severed.", false);
+            }
         };
     </script>
     </body>
