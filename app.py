@@ -31,10 +31,27 @@ app = Flask(__name__)
 # Serve the main HTML page
 @app.route('/')
 def home():
-    return send_from_directory('.', 'index.html')
+    return send_from_directory('public', 'index.html')
 
 CORS(app)
-client = genai.Client(api_key=API_KEY) if API_KEY else None
+# Helper to safely initialize a client or fall back to the main key if one isn't provided
+def create_task_client(specific_env_var):
+    key = os.getenv(specific_env_var) or os.getenv("GEMINI_API_KEY")
+    if key:
+        return genai.Client(api_key=key)
+    return None
+
+# 8 Dedicated AI Clients for 8 Isolated Tasks
+AI_POOL = {
+    "classify": create_task_client("GEMINI_KEY_CLASSIFY"),
+    "quick_fix": create_task_client("GEMINI_KEY_QUICKFIX"),
+    "summarize": create_task_client("GEMINI_KEY_SUMMARIZE"),
+    "email_draft": create_task_client("GEMINI_KEY_EMAILDRAFT"),
+    "market_search": create_task_client("GEMINI_KEY_MARKET"),
+    "alternative": create_task_client("GEMINI_KEY_ALTERNATIVE"),
+    "chat": create_task_client("GEMINI_KEY_CHAT"),
+    "briefing": create_task_client("GEMINI_KEY_BRIEFING")
+}
 
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
@@ -52,6 +69,9 @@ TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 TWILIO_PHONE_NUMBER = "whatsapp:+14155238886" # Standard Twilio Sandbox Number
 
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) if TWILIO_ACCOUNT_SID else None
+# System Briefing Cache
+LAST_BRIEFING_TEXT = ""
+LAST_BRIEFING_TIME = 0
 
 
 
@@ -144,8 +164,6 @@ def init_db():
     try:
         conn.execute('''CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, custom_id TEXT, name TEXT, email TEXT UNIQUE, password TEXT, role TEXT, mobile_no TEXT, account_status TEXT DEFAULT 'Approved')''')
         conn.execute('''CREATE TABLE IF NOT EXISTS technicians (technician_id SERIAL PRIMARY KEY, custom_id TEXT, name TEXT, department TEXT, current_active_hours INTEGER DEFAULT 0, max_shift_hours INTEGER DEFAULT 8, is_on_shift INTEGER DEFAULT 0, mobile_no TEXT, points INTEGER DEFAULT 0, on_break INTEGER DEFAULT 0, overtime_opt_in INTEGER DEFAULT 0, badges_unlocked TEXT DEFAULT 'Welcome Aboard', current_building TEXT DEFAULT 'Main Building', account_status TEXT DEFAULT 'Approved')''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS tickets (ticket_id TEXT PRIMARY KEY, user_name TEXT, role TEXT, department TEXT, building TEXT, location TEXT, issue TEXT, photo_attached TEXT, priority TEXT, ai_analysis TEXT, assigned_technician TEXT DEFAULT 'Unassigned', status TEXT DEFAULT 'Pending', decline_reason TEXT, read_status INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT NOW(), last_updated_at TIMESTAMP DEFAULT NOW(), qa_sent INTEGER DEFAULT 0, started_at TIMESTAMP, time_taken_mins INTEGER DEFAULT 0, user_rating INTEGER DEFAULT 0, user_feedback TEXT, resolution_photo TEXT DEFAULT 'None')''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS system_notifications (id SERIAL PRIMARY KEY, target_user TEXT, target_role TEXT, message TEXT, is_urgent INTEGER DEFAULT 0, is_read INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT NOW())''')
         conn.execute('''CREATE TABLE IF NOT EXISTS inventory (id SERIAL PRIMARY KEY, item_name TEXT, category TEXT, stock_level INTEGER DEFAULT 0, reorder_threshold INTEGER DEFAULT 5, unit_price NUMERIC)''')
         conn.execute('''CREATE TABLE IF NOT EXISTS part_requests (id SERIAL PRIMARY KEY, ticket_id TEXT, tech_name TEXT, part_name TEXT, status TEXT DEFAULT 'Pending', requested_at TIMESTAMP DEFAULT NOW())''')
         conn.execute('''CREATE TABLE IF NOT EXISTS audit_logs (id SERIAL PRIMARY KEY, "user" TEXT, action TEXT, target TEXT, created_at TIMESTAMP DEFAULT NOW())''')
@@ -154,6 +172,8 @@ def init_db():
         conn.execute('''CREATE TABLE IF NOT EXISTS tool_checkouts (id SERIAL PRIMARY KEY, tool_name TEXT, tech_name TEXT, checkout_date TIMESTAMP DEFAULT NOW(), status TEXT DEFAULT 'Borrowed')''')
         conn.execute('''CREATE TABLE IF NOT EXISTS password_resets (email TEXT PRIMARY KEY, otp TEXT, created_at TIMESTAMP DEFAULT NOW())''')
         conn.execute('''CREATE TABLE IF NOT EXISTS whatsapp_sessions (phone_number TEXT PRIMARY KEY, current_state TEXT DEFAULT 'IDLE', temp_issue TEXT, temp_building TEXT, last_interaction TIMESTAMP DEFAULT NOW())''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS tickets (ticket_id TEXT PRIMARY KEY, user_name TEXT, contact_number TEXT, role TEXT, department TEXT, building TEXT, location TEXT, issue TEXT, photo_attached TEXT, priority TEXT, ai_analysis TEXT, assigned_technician TEXT DEFAULT 'Unassigned', status TEXT DEFAULT 'Pending', decline_reason TEXT, read_status INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT NOW(), last_updated_at TIMESTAMP DEFAULT NOW(), qa_sent INTEGER DEFAULT 0, started_at TIMESTAMP, time_taken_mins INTEGER DEFAULT 0, user_rating INTEGER DEFAULT 0, user_feedback TEXT, resolution_photo TEXT DEFAULT 'None')''')
+
         
 
         inv_check = conn.execute("SELECT COUNT(*) as count FROM inventory").fetchone()['count']
@@ -271,11 +291,13 @@ def tool_assign_ticket(ticket_id, technician_name, estimated_task_hours=2, db_co
         if not db_conn and conn:
             conn.close()
 
+
 # ==========================================
 # 4. NATURAL LANGUAGE CLASSIFICATION AGENT
 # ==========================================
 def classify_ticket_with_ai(issue):
-    if 'client' in globals() and client:
+    task_client = AI_POOL.get("classify")
+    if task_client:
         try:
             # Instruct the AI to act as the Dispatcher
             prompt = f"""
@@ -290,7 +312,7 @@ def classify_ticket_with_ai(issue):
             Do not include Markdown formatting or code blocks. Output JSON only.
             """
             
-            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            response = task_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
             raw_text = response.text.strip()
             
             start_idx = raw_text.find('{')
@@ -314,7 +336,8 @@ def classify_ticket_with_ai(issue):
 # ==========================================
 @app.route('/<path:filename>')
 def serve_static_file(filename): 
-    return send_from_directory('.', filename)
+    # Create a folder named 'public' in your root directory and put index.html there
+    return send_from_directory('public', filename)
 
 @app.route('/api/register', methods=['POST'])
 def register():
@@ -497,7 +520,8 @@ def ai_custom_chat():
             live_context = f"User Status: You currently have {my_tickets} active maintenance requests open."
 
         # 2. Send to Gemini to answer EVERYTHING
-        if 'client' in globals() and client:
+        task_client = AI_POOL.get("chat")
+        if task_client:
             prompt = f"""
             You are 'InfraHub Nexus', the highly advanced, professional, and slightly futuristic AI assistant for a smart campus maintenance portal.
             The person talking to you is {user_name}, and their system role is {user_role}. 
@@ -513,11 +537,11 @@ def ai_custom_chat():
             User's Query: "{user_message}"
             """
             
-            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            response = task_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
             return jsonify({"status": "success", "reply": response.text.strip()})
         else:
             return jsonify({"status": "error", "reply": "My AI neural net is currently offline. Please check the API key."})
-            
+        
     except Exception as e:
         print(f"Chat AI Error: {e}")
         return jsonify({"status": "error", "reply": f"My neural net is experiencing interference: {str(e)}"})
@@ -528,9 +552,10 @@ def ai_custom_chat():
 def ai_quick_fix():
     issue = request.json.get('issue')
     try:
-        if client:
+        task_client = AI_POOL.get("quick_fix")
+        if task_client:
             prompt = f"A campus user is about to submit a maintenance ticket for this issue: '{issue}'. Give them a brief, friendly, 2-sentence DIY troubleshooting tip they can try right now to fix it themselves before calling a technician. Keep it safe and practical."
-            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            response = task_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
             return jsonify({"status": "success", "tip": response.text})
         return jsonify({"status": "error", "message": "AI not configured."})
     except Exception as e:
@@ -636,11 +661,10 @@ def accept(ticket_id):
             add_notification(ticket['user_name'], None, f"IN PROGRESS: Technician has started working on {ticket_id}.", db_conn=conn)
             notify_status_change(ticket_id, 'In Progress', db_conn=conn)
             
-            # ---> PASTE THIS NEW WHATSAPP CODE HERE <---
+            # ---> FIXED WHATSAPP CODE HERE <---
             # If the user's name implies they came from WhatsApp, send them a live update!
-            if "WhatsApp" in ticket['user_name']:
-                # Note: Replace this with your actual registered sandbox phone number!
-                send_whatsapp_update("whatsapp:+918080359798", ticket_id, "In Progress")
+            if "WhatsApp" in ticket['user_name'] and ticket.get('contact_number'):
+                send_whatsapp_update(f"whatsapp:+{ticket['contact_number']}", ticket_id, "In Progress")
             # ------------------------------------------
         
         return jsonify({"status": "success"}), 200
@@ -672,14 +696,15 @@ def resolve_ticket(ticket_id):
             WHERE ticket_id = %s
         ''', (res_photo, ticket_id))
 
-        ticket = conn.execute("SELECT user_name, time_taken_mins FROM tickets WHERE ticket_id = %s", (ticket_id,)).fetchone()
+        # ---> FIXED SQL QUERY TO INCLUDE contact_number <---
+        ticket = conn.execute("SELECT user_name, contact_number, time_taken_mins FROM tickets WHERE ticket_id = %s", (ticket_id,)).fetchone()
         
         if ticket:
             add_notification(ticket['user_name'], None, f"Your request {ticket_id} has been resolved! It took our team {ticket['time_taken_mins']} minutes to fix.", db_conn=conn)
 
-            # ---> PASTE THIS NEW WHATSAPP CODE HERE <---
-            if "WhatsApp" in ticket['user_name']:
-                send_whatsapp_update("whatsapp:+918080359798", ticket_id, "Resolved", "Check your email for the QA Survey!")
+            # ---> FIXED WHATSAPP CODE HERE <---
+            if "WhatsApp" in ticket['user_name'] and ticket.get('contact_number'):
+                send_whatsapp_update(f"whatsapp:+{ticket['contact_number']}", ticket_id, "Resolved", "Check your email for the QA Survey!")
             # ------------------------------------------
 
         return jsonify({"status": "success"}), 200
@@ -935,9 +960,13 @@ def handle_part_request():
 
 @app.route('/api/inventory/search-online', methods=['POST'])
 def search_online():
-    part_name = request.json.get('part_name')
+    part_name = request.json.get('part_name', '').strip()
+
+    if not part_name:
+     return jsonify({"status": "error", "message": "part_name is required."}), 400
     try:
-        if client: 
+        task_client = AI_POOL.get("market_search")
+        if task_client: 
             try:
                 prompt = f"""Search the live internet for where to buy '{part_name}' in India right now. 
                 Return EXACTLY a JSON array of 3 trusted Indian suppliers (e.g., Moglix, Amazon.in, Flipkart, IndustryBuying). 
@@ -950,13 +979,17 @@ def search_online():
                 config = types.GenerateContentConfig(
                     tools=[{"google_search": {}}]
                 )
-                response = client.models.generate_content(
+                response = task_client.models.generate_content(
                     model='gemini-2.5-flash', 
                     contents=prompt,
                     config=config
                 )
                 
+                import re
+                import json
+                
                 raw_text = response.text.strip()
+                
                 start_index = raw_text.find('[')
                 end_index = raw_text.rfind(']')
                 
@@ -1044,8 +1077,10 @@ def monitoring_agent_loop():
                 
                 if user and user['email']:
                     subject = f"Did we fix it? QA Survey for {ticket_id}"
-                    link_yes = f"http://127.0.0.1:5005/api/qa/{ticket_id}?answer=yes"
-                    link_no = f"http://127.0.0.1:5005/api/qa/{ticket_id}?answer=no"
+                    # Grabs your live domain from the .env file, or falls back to localhost for testing
+                    base_url = os.getenv("FRONTEND_URL", "http://127.0.0.1:5005")
+                    link_yes = f"{base_url}/api/qa/{ticket_id}?answer=yes"
+                    link_no = f"{base_url}/api/qa/{ticket_id}?answer=no"
                     
                     body = f"Hi {q['user_name']},\n\nYour maintenance request {ticket_id} was marked as 'Resolved' by {q['assigned_technician']}.\n\nTo ensure quality, please let us know if the issue was completely fixed by clicking one of the links below:\n\nYES, IT IS FIXED: {link_yes}\n\nNO, STILL BROKEN: {link_no}\n\nThank you,\nInfraHub QA Bot"
                     
@@ -1187,9 +1222,10 @@ def get_ai_alternative():
         available = conn.execute("SELECT item_name, category FROM inventory WHERE stock_level > 0").fetchall()
         avail_str = ", ".join([f"{a['item_name']} ({a['category']})" for a in available])
         
-        if client:
+        task_client = AI_POOL.get("alternative")
+        if task_client:
             prompt = f"A technician desperately needs '{part_name}' but it is completely out of stock. Based ONLY on this list of available inventory: [{avail_str}], what is the single best emergency alternative they can use? Keep your response under 15 words. Format: 'AI Suggests: [Item Name]'"
-            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            response = task_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
             return jsonify({"status": "success", "suggestion": response.text.strip()})
         else:
             return jsonify({"status": "error", "message": "AI not configured."})
@@ -1330,14 +1366,7 @@ def get_system_status():
     global LOCKDOWN_MODE
     conn = get_db_connection()
     try:
-        if LOCKDOWN_MODE:
-            return jsonify({
-                "status": "success",
-                "classification": {"text": "HALTED (CRISIS)", "color": "#ef4444"},
-                "assignment": {"text": "EMERGENCY ONLY", "color": "#ef4444"},
-                "sla": {"text": "CRITICAL OVERRIDE", "color": "#ef4444"},
-                "lockdown": True
-            })
+        
 
         pending = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status = 'Pending'").fetchone()['c']
         active = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status IN ('Assigned', 'In Progress')").fetchone()['c']
@@ -1359,53 +1388,37 @@ def get_system_status():
             "classification": {"text": class_status, "color": class_color},
             "assignment": {"text": assign_status, "color": assign_color},
             "sla": {"text": sla_status, "color": sla_color},
-            "lockdown": False
+           
         })
     except Exception as e:
         return jsonify({"status": "error"})
     finally:
         conn.close()
 
-@app.route('/api/ai/lockdown', methods=['POST'])
-def toggle_lockdown():
-    global LOCKDOWN_MODE
-    data = request.get_json() or {}
-    LOCKDOWN_MODE = data.get('enabled', False)
-    
-    conn = get_db_connection()
-    try:
-        if LOCKDOWN_MODE:
-            conn.execute("UPDATE tickets SET priority = 'High' WHERE status != 'Resolved' AND tags = 'Emergency'")
-        return jsonify({"status": "success", "lockdown_mode": LOCKDOWN_MODE})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
-    finally:
-        conn.close()
 
 LAST_BRIEFING_TEXT = ""
 LAST_BRIEFING_TIME = 0
 
 @app.route('/api/ai/briefing')
 def get_campus_briefing():
-    global LOCKDOWN_MODE, LAST_BRIEFING_TEXT, LAST_BRIEFING_TIME
+    global LAST_BRIEFING_TEXT, LAST_BRIEFING_TIME
     conn = get_db_connection()
     try:
-        if LOCKDOWN_MODE:
-            return jsonify({"status": "success", "briefing": "CRITICAL PROTOCOL ACTIVE: All automated non-emergency routing is suspended. Technicians are locked to high-priority infrastructure hazards."})
-        
         pending_count = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status = 'Pending'").fetchone()['c']
         active_count = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status IN ('Assigned', 'In Progress')").fetchone()['c']
         low_stock = conn.execute("SELECT COUNT(*) as c FROM inventory WHERE stock_level <= reorder_threshold").fetchone()['c']
         
         fallback_briefing = f"Campus health is stable. We currently have {pending_count} unassigned requests, {active_count} jobs actively being worked on, and {low_stock} stockroom items falling below safety thresholds."
         
-        if time.time() - LAST_BRIEFING_TIME < 60:
-            return jsonify({"status": "success", "briefing": LAST_BRIEFING_TEXT or fallback_briefing})
+        # INCREASED CACHE TO 5 MINUTES (300 SECONDS)
+        if time.time() - LAST_BRIEFING_TIME < 300 and LAST_BRIEFING_TEXT:
+            return jsonify({"status": "success", "briefing": LAST_BRIEFING_TEXT})
 
         try:
-            if 'client' in globals() and client:
+            task_client = AI_POOL.get("briefing")
+            if task_client:
                 prompt = f"You are the AI manager of a campus maintenance system. Write a quick, professional 2-sentence morning briefing. Current stats: {pending_count} pending tickets, {active_count} active tickets, and {low_stock} low stock items. Be concise, operational, and do not use formatting like bolding or asterisks."
-                response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+                response = task_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
                 
                 LAST_BRIEFING_TEXT = response.text.strip()
                 LAST_BRIEFING_TIME = time.time()
@@ -1575,10 +1588,11 @@ def ai_preflight():
         inv = conn.execute("SELECT item_name, stock_level FROM inventory").fetchall()
         stock_list = ", ".join([f"{i['item_name']} (Qty: {i['stock_level']})" for i in inv])
         
-        if 'client' in globals() and client:
+        task_client = AI_POOL.get("classify") # Using the classify key here is fine, or create a specific one
+        if task_client:
             try:
                 prompt = f"A technician is about to accept this issue: '{issue}'. Look at our live inventory: [{stock_list}]. Identify 1 or 2 parts they will likely need. Format reply as exactly: 'Requires: [parts]. Status: [In Stock / OUT OF STOCK]'."
-                resp = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
+                resp = task_client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
                 return jsonify({"status": "success", "analysis": resp})
             except Exception as e:
                 return jsonify({"status": "success", "analysis": "Requires: Standard Toolkit. Status: IN STOCK (AI Fallback)"})
@@ -1589,10 +1603,11 @@ def ai_preflight():
 @app.route('/api/ai/summarize', methods=['POST'])
 def ai_summarize():
     issue = request.json.get('issue')
-    if 'client' in globals() and client:
+    task_client = AI_POOL.get("summarize")
+    if task_client:
         try:
             prompt = f"Summarize this maintenance issue into a quick, 1-sentence TL;DR for a busy technician: {issue}"
-            resp = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
+            resp = task_client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
             return jsonify({"status": "success", "summary": resp})
         except Exception as e:
              return jsonify({"status": "success", "summary": f"System Note: {issue[:60]}... (AI Quota Exhausted)"})
@@ -1607,10 +1622,11 @@ def ai_draft_update():
     user_name = data.get('user_name', 'Campus Staff')
     tech_name = data.get('tech_name', 'Campus Technician')
     
-    if 'client' in globals() and client:
+    task_client = AI_POOL.get("email_draft")
+    if task_client:
         try:
             prompt = f"Write a formal, polite email update to {user_name} regarding their reported issue: '{issue}'. Current Status is: '{status}'. Sign the email from {tech_name}."
-            resp = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
+            resp = task_client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
             return jsonify({"status": "success", "draft": resp})
         except Exception as e:
             fallback = f"Dear {user_name},\n\nThis is an automated update regarding your maintenance request. Its current status is now: {status}.\n\nBest regards,\n{tech_name}"
@@ -1658,20 +1674,7 @@ def update_location():
         return jsonify({"status": "success"})
     finally: conn.close()
 
-@app.route('/api/tickets/sos', methods=['POST'])
-def trigger_sos():
-    data = request.json
-    tech_name = data.get('name')
-    bldg = data.get('building', 'Unknown')
-    conn = get_db_connection()
-    try:
-        ticket_id = 'SOS-' + str(random.randint(1000,9999))
-        issue = f"EMERGENCY SOS triggered by Technician {tech_name}"
-        conn.execute('INSERT INTO tickets (ticket_id, user_name, role, department, building, location, issue, priority, status, ai_analysis) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
-            (ticket_id, tech_name, 'Campus Technician', 'Security & Surveillance', bldg, 'User Live Location', issue, 'Urgent', 'Pending', 'CRITICAL OVERRIDE: SOS Panic Button Pressed.'))
-        add_notification(None, 'Portal Admin', f"🚨 SOS ALERT: {tech_name} pressed the panic button at {bldg}!", is_urgent=1, db_conn=conn)
-        return jsonify({"status": "success", "ticket_id": ticket_id})
-    finally: conn.close()
+
 
 @app.route('/api/tickets/hazard', methods=['POST'])
 def report_hazard():
@@ -1682,8 +1685,13 @@ def report_hazard():
     conn = get_db_connection()
     try:
         prompt = f"A field technician quickly typed this hazard report: '{desc}'. Expand this into a formal, professional 2-sentence maintenance ticket issue."
-        if 'client' in globals() and client:
-            resp = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
+        
+        task_client = AI_POOL.get("classify")
+        if task_client:
+            try:
+                resp = task_client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text.strip()
+            except Exception:
+                resp = f"Hazard reported by {tech_name}: {desc}"
         else:
             resp = f"Hazard reported by {tech_name}: {desc}"
         
@@ -1771,22 +1779,23 @@ def whatsapp_bot():
             ticket_id = f"REQ-{random.randint(1000, 9999)}"
             
             conn.execute("""
-                INSERT INTO tickets 
-                (ticket_id, user_name, role, department, building, location, issue, priority, status, assigned_technician, ai_analysis)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                ticket_id, 
-                f"WhatsApp User ({sender_number[-4:]})", 
-                "Campus User", 
-                dept, 
-                building, 
-                final_location, 
-                issue, 
-                pri, 
-                "Pending", 
-                "Unassigned",
-                analysis
-            ))
+    INSERT INTO tickets 
+    (ticket_id, user_name, contact_number, role, department, building, location, issue, priority, status, assigned_technician, ai_analysis)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+""", (
+    ticket_id, 
+    f"WhatsApp User ({sender_number[-4:]})", 
+    sender_number, # The newly saved number
+    "Campus User", 
+    dept, 
+    building, 
+    final_location, 
+    issue, 
+    pri, 
+    "Pending", 
+    "Unassigned",
+    analysis
+))
 
             # ---> NEW: IMMEDIATELY TRIGGER AI DISPATCHER <---
             tech = tool_get_available_technician(dept, building, db_conn=conn)
