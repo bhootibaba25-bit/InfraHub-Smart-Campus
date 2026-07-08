@@ -482,7 +482,32 @@ def ai_quick_fix():
             return jsonify({"status": "success", "tip": response.text})
         return jsonify({"status": "error", "message": "AI not configured."})
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500        
+        return jsonify({"status": "error", "message": str(e)}), 500
+        
+@app.route('/api/ai/chat', methods=['POST'])
+def ai_custom_chat():
+    data = request.json
+    user_message = data.get('message', '')
+    user_name = data.get('user_name', 'User')
+    user_role = data.get('role', 'Campus Staff')
+
+    if 'client' in globals() and client:
+        try:
+            # The System Prompt tells the AI exactly who it is and who it is talking to
+            prompt = f"""
+            You are 'InfraHub Nexus', the highly advanced, professional, and slightly futuristic AI assistant for a smart campus maintenance portal.
+            The person talking to you is {user_name}, and their system role is {user_role}. 
+            Answer their query intelligently, directly, and concisely. Do not use asterisks or bolding.
+            
+            User's Query: "{user_message}"
+            """
+            
+            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            return jsonify({"status": "success", "reply": response.text.strip()})
+        except Exception as e:
+            return jsonify({"status": "error", "reply": "My neural net is currently experiencing interference. Please try again later."})
+            
+    return jsonify({"status": "error", "reply": "AI module is offline."})
 
 @app.route('/api/tickets', methods=['POST'])
 def create_ticket():
