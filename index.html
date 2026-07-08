@@ -444,13 +444,12 @@
                     
                     <!-- NEW: Custom Chat Input -->
                     <div style="display: flex; gap: 10px; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
-                        <input type="text" id="custom-chat-input" placeholder="Ask Nexus AI anything..." style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.5); background: rgba(0,0,0,0.4); color: white; outline: none; font-size: 0.85rem;" onkeydown="if(event.key === 'Enter') sendCustomChatMessage()">
-                        <button type="button" onclick="sendCustomChatMessage()" class="primary-btn" style="width: auto; background: #38bdf8; color: #0f172a; padding: 10px 15px;"><i class="fa-solid fa-paper-plane"></i></button>
+                                <input type="text" id="custom-chat-input" placeholder="Ask Nexus AI anything..." style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.5); background: rgba(0,0,0,0.4); color: white; outline: none; font-size: 0.85rem;" onkeydown="if(event.key === 'Enter') sendCustomChatMessage()">
+                                <button type="button" onclick="sendCustomChatMessage()" class="primary-btn" style="width: auto; background: #38bdf8; color: #0f172a; padding: 10px 15px;"><i class="fa-solid fa-paper-plane"></i></button>
+                            </div>
+                        </div>
                     </div>
-                </div>
-        </div>
-
-        <button type="button" id="chat-fab" onclick="toggleChat()" style="position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; border-radius: 50%; background: #e08e45; color: white; border: none; font-size: 1.5rem; cursor: pointer; box-shadow: 0 10px 25px rgba(0,0,0,0.3); z-index: 1000; transition: 0.3s;">
+                </div> <button type="button" id="chat-fab" onclick="toggleChat()" style="position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; border-radius: 50%; background: #e08e45; color: white; border: none; font-size: 1.5rem; cursor: pointer; box-shadow: 0 10px 25px rgba(0,0,0,0.3); z-index: 1000; transition: 0.3s;">
             <i class="fa-solid fa-microchip"></i>
         </button>
 
