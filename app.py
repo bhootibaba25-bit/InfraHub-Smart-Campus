@@ -62,12 +62,7 @@ app.config['MAIL_PASSWORD'] = os.getenv("MAIL_PASSWORD")
 mail = Mail(app)
 
 
-# ==========================================
-# TWILIO CLIENT INITIALIZATION
-# ==========================================
-TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
-TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
-TWILIO_PHONE_NUMBER = "whatsapp:+14155238886" # Standard Twilio Sandbox Number
+
 
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) if TWILIO_ACCOUNT_SID else None
 # System Briefing Cache
@@ -172,7 +167,6 @@ def init_db():
         conn.execute('''CREATE TABLE IF NOT EXISTS leave_requests (id SERIAL PRIMARY KEY, tech_name TEXT, start_date TEXT, end_date TEXT, reason TEXT, status TEXT DEFAULT 'Pending')''')
         conn.execute('''CREATE TABLE IF NOT EXISTS tool_checkouts (id SERIAL PRIMARY KEY, tool_name TEXT, tech_name TEXT, checkout_date TIMESTAMP DEFAULT NOW(), status TEXT DEFAULT 'Borrowed')''')
         conn.execute('''CREATE TABLE IF NOT EXISTS password_resets (email TEXT PRIMARY KEY, otp TEXT, created_at TIMESTAMP DEFAULT NOW())''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS whatsapp_sessions (phone_number TEXT PRIMARY KEY, current_state TEXT DEFAULT 'IDLE', temp_issue TEXT, temp_building TEXT, last_interaction TIMESTAMP DEFAULT NOW())''')
         conn.execute('''CREATE TABLE IF NOT EXISTS tickets (ticket_id TEXT PRIMARY KEY, user_name TEXT, contact_number TEXT, role TEXT, department TEXT, building TEXT, location TEXT, issue TEXT, photo_attached TEXT, priority TEXT, ai_analysis TEXT, assigned_technician TEXT DEFAULT 'Unassigned', status TEXT DEFAULT 'Pending', decline_reason TEXT, read_status INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT NOW(), last_updated_at TIMESTAMP DEFAULT NOW(), qa_sent INTEGER DEFAULT 0, started_at TIMESTAMP, time_taken_mins INTEGER DEFAULT 0, user_rating INTEGER DEFAULT 0, user_feedback TEXT, resolution_photo TEXT DEFAULT 'None')''')
 
         
@@ -731,11 +725,7 @@ def accept(ticket_id):
             add_notification(ticket['user_name'], None, f"IN PROGRESS: Technician has started working on {ticket_id}.", db_conn=conn)
             notify_status_change(ticket_id, 'In Progress', db_conn=conn)
             
-            # ---> FIXED WHATSAPP CODE HERE <---
-            # If the user's name implies they came from WhatsApp, send them a live update!
-            if "WhatsApp" in ticket['user_name'] and ticket.get('contact_number'):
-                send_whatsapp_update(f"whatsapp:+{ticket['contact_number']}", ticket_id, "In Progress")
-            # ------------------------------------------
+           
         
         return jsonify({"status": "success"}), 200
     except Exception as e: 
@@ -772,10 +762,7 @@ def resolve_ticket(ticket_id):
         if ticket:
             add_notification(ticket['user_name'], None, f"Your request {ticket_id} has been resolved! It took our team {ticket['time_taken_mins']} minutes to fix.", db_conn=conn)
 
-            # ---> FIXED WHATSAPP CODE HERE <---
-            if "WhatsApp" in ticket['user_name'] and ticket.get('contact_number'):
-                send_whatsapp_update(f"whatsapp:+{ticket['contact_number']}", ticket_id, "Resolved", "Check your email for the QA Survey!")
-            # ------------------------------------------
+           
 
         return jsonify({"status": "success"}), 200
     except Exception as e: 
@@ -1109,25 +1096,7 @@ def monitoring_agent_loop():
     last_pm_time = time.time() 
     
     while True:
-        # --- FEATURE 4: AUTOMATED ESCALATION MATRIX ---
-            # Find Urgent tickets pending for more than 15 minutes where an alert hasn't been sent
-            escalations = conn.execute("""
-                SELECT ticket_id, issue, created_at 
-                FROM tickets 
-                WHERE priority = 'Urgent' 
-                AND status = 'Pending' 
-                AND assigned_technician = 'Unassigned'
-                AND EXTRACT(EPOCH FROM (NOW() - created_at))/60 > 15
-                AND decline_reason IS NULL -- Use a dedicated flag column if possible, reusing decline_reason for demo
-            """).fetchall()
-            
-            for e in escalations:
-                # Trigger Twilio SMS/Call to Master Admin
-                admin_number = os.getenv("ADMIN_PHONE_NUMBER", "+1234567890") # Add this to .env
-                send_whatsapp_update(admin_number, e['ticket_id'], "🚨 CRITICAL ESCALATION", f"Urgent safety ticket unassigned for >15 mins! Issue: {e['issue']}")
-                print(f"🚨 [ESCALATION MATRIX] Triggered for {e['ticket_id']}")
-                # Mark as alerted to prevent spam (safely hijacking ai_analysis or adding a column)
-                conn.execute("UPDATE tickets SET ai_analysis = ai_analysis || ' [ESCALATION SENT]' WHERE ticket_id = %s", (e['ticket_id'],))
+       
         conn = None
         try:
             conn = get_db_connection() 
@@ -1808,24 +1777,7 @@ def report_hazard():
     finally: conn.close()
 
 
-# ==========================================
-# 5. WHATSAPP AI BOT INTEGRATION (TWILIO)
-# ==========================================
-# ==========================================
-# SECURITY LAYER: VALIDATE TWILIO SIGNATURE
-# ==========================================
-def validate_twilio_request(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        # Validate that the request actually came from Twilio
-        validator = RequestValidator(os.getenv("TWILIO_AUTH_TOKEN"))
-        signature = request.headers.get('X-Twilio-Signature', '')
-        if validator.validate(request.url, request.form, signature):
-            return f(*args, **kwargs)
-        else:
-            return "Forbidden", 403
-    return decorated_function
-    
+
 if __name__ == '__main__':
     # Start the monitoring agent ONLY when running the main app, 
     # preventing duplicates in multi-worker production environments.
