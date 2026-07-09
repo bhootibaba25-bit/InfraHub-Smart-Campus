@@ -495,7 +495,7 @@
     <button type="button" id="mic-btn" onclick="startVoiceRecognition()" class="ai-mic-btn" title="Click to Speak">
         <i class="fa-solid fa-microphone"></i>
     </button>
-    <input type="text" id="custom-chat-input" class="ai-chat-input" placeholder="Ask Nexus AI anything..." onkeydown="if(event.key === 'Enter') sendCustomChatMessage()">
+    <input type="text" id="custom-chat-input" class="ai-chat-input" placeholder="Ask Nexus AI anything..." oninput="window.usedMicLast = false;" onkeydown="if(event.key === 'Enter') sendCustomChatMessage()">
     <button type="button" onclick="sendCustomChatMessage()" class="ai-send-btn">
         <i class="fa-solid fa-paper-plane"></i>
     </button>
@@ -3067,6 +3067,7 @@ function startVoiceRecognition() {
     recognition.onsuccess = function(event) {
         const transcript = event.results[0][0].transcript;
         inputField.value = transcript;
+        window.usedMicLast = true;
     };
     
     recognition.onerror = function(event) {
@@ -3093,7 +3094,10 @@ function speakNexusResponse(text) {
     window.speechSynthesis.cancel();
     
     // Clean up the text (remove markdown asterisks, HTML tags, and emojis so it reads cleanly)
-    const cleanText = text.replace(/<[^>]*>?/gm, '').replace(/[*_#]/g, '');
+    // Clean up the text safely without breaking the HTML parser
+    const htmlRegex = new RegExp('<[^>]*>?', 'gm');
+    const markdownRegex = new RegExp('[*_#]', 'g');
+    const cleanText = text.replace(htmlRegex, '').replace(markdownRegex, '');
     
     const utterance = new SpeechSynthesisUtterance(cleanText);
     
@@ -3141,7 +3145,7 @@ function speakNexusResponse(text) {
                 document.getElementById(loadingId).remove();
                 if (data.status === 'success') {
                     appendChatMessage(data.reply, false);
-                    speakNexusResponse(data.reply); /
+                    speakNexusResponse(data.reply); 
                 } else {
                     appendChatMessage("⚠️ Connection to Nexus mainframe lost.", false);
                 }
