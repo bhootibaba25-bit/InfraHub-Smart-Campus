@@ -1001,15 +1001,18 @@ def search_online():
     part_name = request.json.get('part_name', '').strip()
 
     if not part_name:
-     return jsonify({"status": "error", "message": "part_name is required."}), 400
+        return jsonify({"status": "error", "message": "part_name is required."}), 400
+        
     try:
         task_client = AI_POOL.get("market_search")
         if task_client: 
             try:
+                # 1. UPDATED PROMPT: Prioritizing GeM
                 prompt = f"""Search the live internet for where to buy '{part_name}' in India right now. 
-                Return EXACTLY a JSON array of 3 trusted Indian suppliers (e.g., Moglix, Amazon.in, Flipkart, IndustryBuying). 
+                Return EXACTLY a JSON array of 3 trusted Indian suppliers. You MUST prioritize the Government e-Marketplace (GeM) at gem.gov.in as one of your top choices. Other examples include Moglix, Amazon.in, or IndustryBuying. 
                 Each object must contain: "vendor", "price", "delivery", and "url".
                 CRITICAL RULE FOR URLS: Do not try to guess a specific product link. Instead, generate a 'General Search URL' for that website that searches for the part name. 
+                Example for GeM: 'https://mkp.gem.gov.in/search?q={part_name.replace(' ', '+')}'
                 Example for Amazon: 'https://www.amazon.in/s?k={part_name.replace(' ', '+')}'
                 Example for Moglix: 'https://www.moglix.com/search?q={part_name.replace(' ', '+')}'
                 Ensure the URLs are properly formatted for searching."""
@@ -1040,11 +1043,11 @@ def search_online():
                     
             except Exception as ai_error:
                 print(f"AI Quota Exceeded or Formatting Error: {ai_error}")
-                # GRACEFUL FALLBACK IF GOGEMINI LOCKS US OUT
+                # 2. UPDATED FALLBACK: GeM is now the primary offline default
                 clean_part = part_name.replace(' ', '+')
                 fallback_suppliers = [
-                    {"vendor": "IndustryBuying (Fallback)", "price": "₹ Varies", "delivery": "Check Site", "url": f"https://www.industrybuying.com/search/?q={clean_part}"},
-                    {"vendor": "Amazon Business", "price": "₹ Varies", "delivery": "Check Site", "url": f"https://www.amazon.in/s?k={clean_part}"},
+                    {"vendor": "Government e-Marketplace (GeM)", "price": "₹ Varies", "delivery": "Official Portal", "url": f"https://mkp.gem.gov.in/search?q={clean_part}"},
+                    {"vendor": "IndustryBuying", "price": "₹ Varies", "delivery": "Check Site", "url": f"https://www.industrybuying.com/search/?q={clean_part}"},
                     {"vendor": "Moglix", "price": "₹ Varies", "delivery": "Check Site", "url": f"https://www.moglix.com/search?q={clean_part}"}
                 ]
                 return jsonify({"status": "success", "suppliers": fallback_suppliers})
