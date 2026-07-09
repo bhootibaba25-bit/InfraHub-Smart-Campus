@@ -1026,8 +1026,11 @@
                     <td style="padding: 15px;"><strong style="font-size: 1.1rem;">${safeText(tech.name || 'Unknown')}</strong></td>
                     <td style="padding: 15px;">${safeText(tech.department || 'N/A')}</td>
                     <td style="padding: 15px;"><span class="badge" style="background: rgba(56, 189, 248, 0.2); border: 1px solid #38bdf8; color: #38bdf8;">Minutes Worked: ${tech.current_active_hours || 0} / ${(tech.max_shift_hours || 8) * 60} Mins</span></td>
-                    <td style="padding: 15px;"><button type="button" onclick="viewTechTasks('${safeText(tech.name || '').replace(/'/g, "\\'")}')" style="background: rgba(56,189,248,0.2); border: 1px solid #38bdf8; color: #38bdf8; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;"><i class="fa-solid fa-list-check"></i> Tasks</button></td>
-                </tr>
+                    <td style="padding: 15px; display: flex; gap: 8px;">
+                    <button type="button" onclick="viewTechTasks('${safeText(tech.name || '').replace(/'/g, "\\'")}')" style="background: rgba(56,189,248,0.2); border: 1px solid #38bdf8; color: #38bdf8; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;"><i class="fa-solid fa-list-check"></i> Tasks</button>
+                    <button type="button" onclick="window.location.href='/api/technicians/timesheet/${encodeURIComponent(tech.name || '')}'" style="background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #10b981; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;"><i class="fa-solid fa-file-csv"></i> Timesheet</button>
+                   </td> 
+                   </tr> 
             `).join('');
             // ↑↑↑ END OF REPLACED ROSTER ROWS ↑↑↑
             if(filtered.length === 0) rows = `<tr><td colspan="5" style="padding:15px; text-align:center;">No technicians match your search.</td></tr>`;
