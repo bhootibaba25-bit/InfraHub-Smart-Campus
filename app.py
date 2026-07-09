@@ -1263,9 +1263,16 @@ def return_tool(log_id):
 def get_budget_analytics():
     try:
         departments = [
-            "IT & Network Services", "Electrical Maintenance", 
-            "Plumbing Maintenance", "Civil Maintenance", 
-            "Air Conditioning & Ventilation"
+            "IT & Network Services", 
+            "Electrical Maintenance", 
+            "Plumbing Maintenance", 
+            "Civil Maintenance", 
+            "Air Conditioning & Ventilation Services",
+            "Security & Surveillance",
+            "Housekeeping Services",
+            "Fire Safety Systems",
+            "Water Supply & Sewage Management",
+            "Equipment Support"
         ]
         import random
         data = []
