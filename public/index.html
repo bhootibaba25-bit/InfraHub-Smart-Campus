@@ -542,76 +542,7 @@
             </div>
         </div>
         <script>
-            // --- FEATURE 5: Multi-Language (i18n) Engine ---
-        const i18n = {
-            en: { welcome: "Welcome", tasks: "My Tasks", inventory: "Digital Stockroom" },
-            hi: { welcome: "स्वागत है", tasks: "मेरे कार्य", inventory: "डिजिटल स्टोररूम" },
-            mr: { welcome: "स्वागत आहे", tasks: "माझी कामे", inventory: "डिजिटल स्टॉक रूम" }
-        };
-        function switchLanguage(lang) {
-            document.querySelectorAll('[data-i18n]').forEach(el => {
-                const key = el.getAttribute('data-i18n');
-                if (i18n[lang] && i18n[lang][key]) el.innerText = i18n[lang][key];
-            });
-            // Force re-render of sidebar to translate names if needed
-        }
-
-        // --- FEATURE 6: Dark/Light Theme Engine ---
-        function toggleTheme() {
-            document.body.classList.toggle('light-theme');
-            const icon = document.getElementById('theme-icon');
-            if(document.body.classList.contains('light-theme')) {
-                icon.classList.replace('fa-moon', 'fa-sun');
-            } else {
-                icon.classList.replace('fa-sun', 'fa-moon');
-            }
-        }
-
-        // --- FEATURE 7: Biometric Login (WebAuthn Simulator) ---
-        async function biometricLogin() {
-            if (!window.PublicKeyCredential) {
-                return alert("Biometrics not supported on this device.");
-            }
-            try {
-                // Triggers native FaceID / TouchID prompt
-                const assertion = await navigator.credentials.get({
-                    publicKey: {
-                        challenge: new Uint8Array(32), // Mock challenge
-                        allowCredentials: [],
-                        userVerification: "required",
-                        timeout: 60000
-                    }
-                });
-                if (assertion) {
-                    // In a real app, send 'assertion' to backend to verify signature. 
-                    // For now, auto-login the last saved user or Admin.
-                    const savedEmail = localStorage.getItem('hub_biometric_email') || 'admin@campus.edu';
-                    document.getElementById('login-email').value = savedEmail;
-                    document.getElementById('login-password').value = 'Bypass'; // Mock bypass trigger
-                    alert("Biometric verified. Authenticating...");
-                    // Call backend biometric route here
-                }
-            } catch (err) {
-                alert("Biometric login failed or canceled.");
-            }
-        }
-
-        // --- FEATURE 1 & 2: Predictive & Vendor Data Fetchers ---
-        async function fetchPredictiveData() {
-            document.getElementById('predictive-area').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Running AI models...';
-            try {
-                const res = await fetch('/api/ai/predictive-maintenance');
-                const data = await res.json();
-                let html = data.assets.map(a => `
-                    <div style="background: rgba(255,255,255,0.05); border-left: 4px solid #ef4444; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
-                        <h4 style="color:#fca5a5;"><i class="fa-solid fa-triangle-exclamation"></i> High Risk of Failure: ${a.asset_name}</h4>
-                        <p style="font-size: 0.85rem; color: #cbd5e1;">Location: ${a.location} | Breakdowns in 6 months: ${a.repair_count}</p>
-                        <p style="font-size: 0.85rem; color: #38bdf8; margin-top:5px;"><strong>AI Suggestion:</strong> ${a.ai_suggestion}</p>
-                    </div>
-                `).join('');
-                document.getElementById('predictive-area').innerHTML = html;
-            } catch(e) { document.getElementById('predictive-area').innerHTML = "Data offline."; }
-        }
+            
         // ==========================================
         // TOP LEVEL CONSTANTS AND GLOBALS
         // ==========================================
