@@ -512,7 +512,23 @@ def get_users():
 def get_technicians():
     conn = get_db_connection()
     try:
-        techs = conn.execute('SELECT * FROM technicians ORDER BY department, name').fetchall()
+        # Dynamically calculate TODAY's workload directly from the tickets table.
+        # This forces the counter to exactly 0 at midnight without relying on background loops.
+        query = '''
+            SELECT technician_id, custom_id, name, department, max_shift_hours, is_on_shift, 
+                   mobile_no, points, on_break, overtime_opt_in, badges_unlocked, 
+                   current_building, account_status,
+                   COALESCE((
+                       SELECT SUM(time_taken_mins) 
+                       FROM tickets 
+                       WHERE assigned_technician = technicians.name 
+                       AND status IN ('Resolved', 'Closed') 
+                       AND DATE(last_updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') = CURRENT_DATE
+                   ), 0) as current_active_hours
+            FROM technicians 
+            ORDER BY department, name
+        '''
+        techs = conn.execute(query).fetchall()
         return jsonify({"status": "success", "data": [dict(t) for t in techs]}), 200
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
