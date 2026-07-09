@@ -1109,6 +1109,25 @@ def monitoring_agent_loop():
     last_pm_time = time.time() 
     
     while True:
+        # --- FEATURE 4: AUTOMATED ESCALATION MATRIX ---
+            # Find Urgent tickets pending for more than 15 minutes where an alert hasn't been sent
+            escalations = conn.execute("""
+                SELECT ticket_id, issue, created_at 
+                FROM tickets 
+                WHERE priority = 'Urgent' 
+                AND status = 'Pending' 
+                AND assigned_technician = 'Unassigned'
+                AND EXTRACT(EPOCH FROM (NOW() - created_at))/60 > 15
+                AND decline_reason IS NULL -- Use a dedicated flag column if possible, reusing decline_reason for demo
+            """).fetchall()
+            
+            for e in escalations:
+                # Trigger Twilio SMS/Call to Master Admin
+                admin_number = os.getenv("ADMIN_PHONE_NUMBER", "+1234567890") # Add this to .env
+                send_whatsapp_update(admin_number, e['ticket_id'], "🚨 CRITICAL ESCALATION", f"Urgent safety ticket unassigned for >15 mins! Issue: {e['issue']}")
+                print(f"🚨 [ESCALATION MATRIX] Triggered for {e['ticket_id']}")
+                # Mark as alerted to prevent spam (safely hijacking ai_analysis or adding a column)
+                conn.execute("UPDATE tickets SET ai_analysis = ai_analysis || ' [ESCALATION SENT]' WHERE ticket_id = %s", (e['ticket_id'],))
         conn = None
         try:
             conn = get_db_connection() 
@@ -1928,6 +1947,44 @@ def send_whatsapp_update(user_phone, ticket_id, new_status, additional_info=""):
 
 init_db()
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
+@app.route('/api/ai/predictive-maintenance', methods=['GET'])
+def get_predictive_maintenance():
+    # FEATURE 1: PREDICTIVE MAINTENANCE LOGIC
+    # In a real system, you query: SELECT asset_name, COUNT(*) as repair_count FROM tickets GROUP BY asset_name HAVING COUNT(*) >= 4
+    try:
+        mock_failing_assets = [
+            {"asset_name": "Daikin Compressor Unit 4", "location": "Building C Roof", "repair_count": 5, "ai_suggestion": "Replace unit completely. Repair costs now exceed 60% of replacement value."},
+            {"asset_name": "Main Water Pump", "location": "Basement Block A", "repair_count": 4, "ai_suggestion": "Bearing failure likely imminent. Order spare parts now to prevent total outage."}
+        ]
+        return jsonify({"status": "success", "assets": mock_failing_assets})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/energy/dashboard', methods=['GET'])
+def get_energy_data():
+    # FEATURE 3: ENERGY & SUSTAINABILITY DASHBOARD
+    import random
+    try:
+        # Simulate Power Grid Integrations
+        buildings = ["Main Building", "Library", "Building A", "Building B", "Building C"]
+        usage = [random.randint(400, 1200) for _ in buildings]
+        
+        # Detect Anomaly (Spike)
+        anomaly_index = random.randint(0, len(buildings)-1)
+        usage[anomaly_index] += 800 # Artificial Spike
+        anomaly_building = buildings[anomaly_index]
+        
+        ai_insight = f"⚠️ ANOMALY DETECTED: {anomaly_building} is drawing unusual power (+800 kWh). AI suspects a failing HVAC compressor or electrical short."
+        
+        return jsonify({
+            "status": "success", 
+            "labels": buildings, 
+            "data": usage,
+            "ai_insight": ai_insight
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 if __name__ == '__main__':
     # Start the monitoring agent ONLY when running the main app, 
