@@ -64,13 +64,6 @@ mail = Mail(app)
 
 
 
-twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) if TWILIO_ACCOUNT_SID else None
-# System Briefing Cache
-LAST_BRIEFING_TEXT = ""
-LAST_BRIEFING_TIME = 0
-
-
-
 # ==========================================
 # 1.5 EMAIL NOTIFICATION BOT (BACKGROUND THREADS)
 # ==========================================
