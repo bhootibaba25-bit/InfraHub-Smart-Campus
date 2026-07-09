@@ -300,22 +300,45 @@ def classify_ticket_with_ai(issue):
     task_client = AI_POOL.get("classify")
     if task_client:
         try:
-            # Instruct the AI to act as the Dispatcher
+            # A deeply analytical prompt establishing clear borders between all 10 departments
             prompt = f"""
-            You are the AI Dispatcher for a university campus maintenance system.
-            Read the following natural language complaint from a user: "{issue}"
+            You are the expert AI Dispatcher Node for a comprehensive smart campus facility management system. 
+            Analyze the user's natural language complaint deeply and categorize it thoroughly. 
             
-            Based on the complaint, output EXACTLY a valid JSON object with these 3 keys:
-            1. "department": Choose either "Civil Maintenance" or "Air Conditioning & Ventilation Services". (Note: We are in a limited beta. If it sounds like plumbing/electrical/IT, map it to Civil Maintenance for now).
-            2. "priority": Choose "Low", "Medium", "High", or "Urgent" based on severity.
-            3. "ai_analysis": A professional 1-sentence explanation of your routing decision.
+            User Complaint: "{issue}"
             
-            Do not include Markdown formatting or code blocks. Output JSON only.
+            You must map this complaint to EXACTLY one of the following 10 departments based on these operational scopes:
+            1. "IT & Network Services": Wi-Fi drops, internet connectivity, routers, switches, ethernet ports, servers, or computing hardware errors.
+            2. "Electrical Maintenance": Short circuits, flickering lights, dead power sockets, blown fuses, electrical panels, wiring problems, or total room blackouts.
+            3. "Plumbing Maintenance": Dripping faucets, clogged washbasins, running flush tanks, broken pipe valves, bathroom blockages, or minor localized leaks.
+            4. "Civil Maintenance": Cracks in walls, ceiling plaster peeling, broken doors/windows, tile damage, furniture repairs, lock replacements, masonry, or structural wear.
+            5. "Air Conditioning & Ventilation Services": AC compressor failure, water leaking from indoor units, lack of cooling, severe vent rattle, duct blockages, or fan failures.
+            6. "Security & Surveillance": Damaged CCTV cameras, digital card reader lock failures, biometric sensor errors, perimeter gate automation faults, or intercom dead lines.
+            7. "Housekeeping Services": Liquid spills, garbage accumulation, corridor cleaning, window washing requests, dirty spaces, or emergency pest control.
+            8. "Fire Safety Systems": Fire extinguisher pressure drops, smoke detector warning chirps, malfunctioning sprinklers, or emergency exit sign electrical defects.
+            9. "Water Supply & Sewage Management": Total loss of building water supply, main line sewage back-ups, overhead water tank overflow sensors tripping, or pump station pipeline bursts.
+            10. "Equipment Support": Broken classroom projectors, non-functional smart boards, audio system microphone failures, lab instruments, or educational equipment defects.
+
+            Priority Matrix Guidelines:
+            - "Low": Isolated, minor issues that do not interrupt work or classes.
+            - "Medium": Noticeable disruptions that reduce comfort but allow space usage.
+            - "High": Significant class or operational office halts (e.g., classroom projector dead, no lights in an ongoing lab).
+            - "Urgent": Immediate physical safety hazards, active severe structural flooding, structural collapse dangers, or a total building systems failure.
+
+            Return EXACTLY a valid JSON object with these 3 keys and no extra formatting:
+            {{
+                "department": "Exact string matching one of the 10 teams listed above",
+                "priority": "Low", "Medium", "High", or "Urgent",
+                "ai_analysis": "A thorough, 1-sentence technical justification of your chosen department and priority ranking."
+            }}
+
+            CRITICAL: Do not wrap your response in markdown code blocks like ```json ... ```. Provide the raw JSON text string directly.
             """
             
             response = task_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
             raw_text = response.text.strip()
             
+            # Resilient JSON parsing to catch hidden brackets
             start_idx = raw_text.find('{')
             end_idx = raw_text.rfind('}')
             
@@ -324,13 +347,13 @@ def classify_ticket_with_ai(issue):
                 return json.loads(json_clean)
                 
         except Exception as e:
-            print(f"NLP Engine Error: {e}")
+            print(f"Thorough NLP Router Error: {e}")
             
-    # Fallback Mechanism if AI is offline
+    # System recovery default if AI fails completely 
     return {
         "department": "Civil Maintenance", 
         "priority": "Medium", 
-        "ai_analysis": "STANDARD TICKET (AI Offline Fallback): Automatically routed to Civil queue."
+        "ai_analysis": "CRITICAL ENGINE FALLBACK: Automated routing error. Assigned to general Civil queue for manual triaging."
     }
 # ==========================================
 # 5. REST API ROUTES & ENDPOINTS
