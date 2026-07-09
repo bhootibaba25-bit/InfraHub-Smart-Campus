@@ -3044,6 +3044,9 @@
 // Pre-load voices for the browser
 window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
 
+// Add this at the top of your speech script to track the active microphone
+window.activeRecognition = null;
+
 function startVoiceRecognition() {
     const micBtn = document.getElementById('mic-btn');
     const inputField = document.getElementById('custom-chat-input');
@@ -3055,28 +3058,58 @@ function startVoiceRecognition() {
         return;
     }
     
+    // TOGGLE FIX: If the mic is already red and listening, clicking it again will stop it and submit!
+    if (window.activeRecognition) {
+        window.activeRecognition.stop();
+        return;
+    }
+    
     const recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
-    recognition.interimResults = false;
+    // LIVE FEEDBACK FIX: Set to true so words appear instantly as you speak
+    recognition.interimResults = true; 
+    
+    window.activeRecognition = recognition;
     
     recognition.onstart = function() {
         micBtn.classList.add('listening');
         inputField.placeholder = "Listening... Speak now.";
+        inputField.value = ""; // Clear the box for new speech
     };
     
-    recognition.onsuccess = function(event) {
-        const transcript = event.results[0][0].transcript;
-        inputField.value = transcript;
-        window.usedMicLast = true;
+    // FATAL BUG FIX: Changed 'onsuccess' to 'onresult'
+    recognition.onresult = function(event) {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+                finalTranscript += event.results[i][0].transcript;
+            } else {
+                interimTranscript += event.results[i][0].transcript;
+            }
+        }
+
+        // Paste the live text into the input box
+        inputField.value = finalTranscript || interimTranscript;
+        window.usedMicLast = true; // Tell the system you used the mic
     };
     
     recognition.onerror = function(event) {
         console.error("Voice recognition error", event.error);
-        inputField.placeholder = "Didn't catch that. Try again.";
+        
+        if (event.error === 'not-allowed') {
+            alert("Microphone blocked! Click the lock icon next to your URL bar to allow it.");
+        }
+        
+        inputField.placeholder = "Mic error. Try again.";
+        window.activeRecognition = null;
     };
     
     recognition.onend = function() {
         micBtn.classList.remove('listening');
+        window.activeRecognition = null; // Clear the instance
+        
         setTimeout(() => {
             if(inputField.placeholder.includes("Listening")) {
                 inputField.placeholder = "Ask Nexus AI anything...";
