@@ -379,10 +379,19 @@
                     </div>
                     <div class="input-group hidden" id="reg-dept-group">
                         <i class="fa-solid fa-toolbox input-icon"></i>
-                        <select id="reg-tech-dept" style="padding-left: 45px;">
-                            <option value="" disabled selected>Select Your Department...</option>
-                            <option value="Civil Maintenance">Civil Maintenance</option>
-                            <option value="Air Conditioning & Ventilation Services">Air Conditioning & Ventilation Services (HVAC)</option>
+                        <select id="reg-tech-dept" style="padding-left: 45px;" required>
+    <option value="" disabled selected>Select Your Department...</option>
+    <option value="IT & Network Services">IT & Network Services</option>
+    <option value="Electrical Maintenance">Electrical Maintenance</option>
+    <option value="Plumbing Maintenance">Plumbing Maintenance</option>
+    <option value="Civil Maintenance">Civil Maintenance</option>
+    <option value="Air Conditioning & Ventilation Services">Air Conditioning & Ventilation Services</option>
+    <option value="Security & Surveillance">Security & Surveillance</option>
+    <option value="Housekeeping Services">Housekeeping Services</option>
+    <option value="Fire Safety Systems">Fire Safety Systems</option>
+    <option value="Water Supply & Sewage Management">Water Supply & Sewage Management</option>
+    <option value="Equipment Support">Equipment Support</option>
+
                         </select>
                     </div>
                     <div class="input-group">
@@ -726,11 +735,19 @@
                             <i class="fa-solid fa-search input-icon" style="color: rgba(255,255,255,0.6);"></i>
                             <input type="text" id="tech-search" placeholder="Search by tech name or ID..." onkeyup="renderTechs()" style="background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; padding-left: 45px;">
                         </div>
-                        <select id="tech-filter" onchange="renderTechs()" style="flex:1; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; border-radius:12px; padding: 0 15px; outline:none;">
-                            <option value="All" style="color:black;">All Departments</option>
-                            <option value="Civil Maintenance" style="color:black;">Civil Maintenance</option>
-                            <option value="Air Conditioning & Ventilation Services" style="color:black;">Air Conditioning & Ventilation Services</option>
-                        </select>
+                       <select id="tech-filter" onchange="renderTechs()" style="flex:1; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; border-radius:12px; padding: 0 15px; outline:none;">
+    <option value="All" style="color:black;">All Departments</option>
+    <option value="IT & Network Services" style="color:black;">IT & Network Services</option>
+    <option value="Electrical Maintenance" style="color:black;">Electrical Maintenance</option>
+    <option value="Plumbing Maintenance" style="color:black;">Plumbing Maintenance</option>
+    <option value="Civil Maintenance" style="color:black;">Civil Maintenance</option>
+    <option value="Air Conditioning & Ventilation Services" style="color:black;">Air Conditioning & Ventilation Services</option>
+    <option value="Security & Surveillance" style="color:black;">Security & Surveillance</option>
+    <option value="Housekeeping Services" style="color:black;">Housekeeping Services</option>
+    <option value="Fire Safety Systems" style="color:black;">Fire Safety Systems</option>
+    <option value="Water Supply & Sewage Management" style="color:black;">Water Supply & Sewage Management</option>
+    <option value="Equipment Support" style="color:black;">Equipment Support</option>
+</select>
                     </div>
                     <div id="roster-table-area"><p style="color:white;"><i class="fa-solid fa-spinner fa-spin"></i> Loading roster...</p></div>
                 ` 
@@ -2040,7 +2057,18 @@
     }
 
     window.transferTicket = async function(ticketId) {
-    const depts = ['Civil Maintenance', 'Air Conditioning & Ventilation Services'];     let deptPrompt = "Enter the NUMBER of the correct department:\n\n";
+    const depts = [
+        'IT & Network Services', 
+        'Electrical Maintenance', 
+        'Plumbing Maintenance', 
+        'Civil Maintenance', 
+        'Air Conditioning & Ventilation Services', 
+        'Security & Surveillance', 
+        'Housekeeping Services', 
+        'Fire Safety Systems', 
+        'Water Supply & Sewage Management', 
+        'Equipment Support'
+    ];    let deptPrompt = "Enter the NUMBER of the correct department:\n\n";
         depts.forEach((d, i) => deptPrompt += `${i+1}. ${d}\n`);
 
         const input = prompt(deptPrompt);
