@@ -255,9 +255,20 @@
             .ai-send-btn { background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%); color: white; border: none; width: 48px; height: 48px; border-radius: 14px; cursor: pointer; font-size: 1.2rem; display: flex; justify-content: center; align-items: center; transition: all 0.2s ease; box-shadow: 0 8px 20px rgba(2, 132, 199, 0.4); }
             .ai-send-btn:hover { transform: scale(1.05) translateY(-2px); box-shadow: 0 10px 25px rgba(2, 132, 199, 0.6); }
 
+            /* AR Chat Microphone Styles */
+            .ai-mic-btn { background: transparent; color: #9ca3af; border: none; font-size: 1.3rem; cursor: pointer; transition: 0.3s; padding: 0 12px; display: flex; align-items: center; justify-content: center; }
+            .ai-mic-btn:hover { color: #38bdf8; transform: scale(1.1); }
+            .ai-mic-btn.listening { color: #ef4444; animation: pulse-mic 1.5s infinite; }
+            @keyframes pulse-mic {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.25); text-shadow: 0 0 10px rgba(239, 68, 68, 0.6); }
+    100% { transform: scale(1); }
+}
+
             @keyframes floatHuman { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-15px); } }
             @keyframes pulseBase { 0%, 100% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.2); opacity: 0.4; } }
             @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+            
 
             /* FEATURE 3: PULSING CRITICAL BADGE */
             @keyframes pulse-red {
@@ -481,11 +492,14 @@
                 </div>
 
                 <div class="ai-input-area">
-                    <input type="text" id="custom-chat-input" class="ai-chat-input" placeholder="Ask Nexus AI anything..." onkeydown="if(event.key === 'Enter') sendCustomChatMessage()">
-                    <button type="button" onclick="sendCustomChatMessage()" class="ai-send-btn">
-                        <i class="fa-solid fa-paper-plane"></i>
-                    </button>
-                </div>
+    <button type="button" id="mic-btn" onclick="startVoiceRecognition()" class="ai-mic-btn" title="Click to Speak">
+        <i class="fa-solid fa-microphone"></i>
+    </button>
+    <input type="text" id="custom-chat-input" class="ai-chat-input" placeholder="Ask Nexus AI anything..." onkeydown="if(event.key === 'Enter') sendCustomChatMessage()">
+    <button type="button" onclick="sendCustomChatMessage()" class="ai-send-btn">
+        <i class="fa-solid fa-paper-plane"></i>
+    </button>
+</div>
             </div>
         </div> 
 
@@ -3023,7 +3037,78 @@
             await fetch('/api/admin/process-leave', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id, status: status}) });
             window.renderAdminApprovalsView();
         };
-            
+        // ==========================================
+// VOICE RECOGNITION & TEXT-TO-SPEECH
+// ==========================================
+
+// Pre-load voices for the browser
+window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+
+function startVoiceRecognition() {
+    const micBtn = document.getElementById('mic-btn');
+    const inputField = document.getElementById('custom-chat-input');
+    
+    // Check for browser support
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        alert("Your browser does not support Voice Input. Please use Google Chrome.");
+        return;
+    }
+    
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    
+    recognition.onstart = function() {
+        micBtn.classList.add('listening');
+        inputField.placeholder = "Listening... Speak now.";
+    };
+    
+    recognition.onsuccess = function(event) {
+        const transcript = event.results[0][0].transcript;
+        inputField.value = transcript;
+    };
+    
+    recognition.onerror = function(event) {
+        console.error("Voice recognition error", event.error);
+        inputField.placeholder = "Didn't catch that. Try again.";
+    };
+    
+    recognition.onend = function() {
+        micBtn.classList.remove('listening');
+        setTimeout(() => {
+            if(inputField.placeholder.includes("Listening")) {
+                inputField.placeholder = "Ask Nexus AI anything...";
+            }
+        }, 1500);
+    };
+    
+    recognition.start();
+}
+
+function speakNexusResponse(text) {
+    if (!('speechSynthesis' in window)) return;
+    
+    // Stop any ongoing speech so it doesn't overlap
+    window.speechSynthesis.cancel();
+    
+    // Clean up the text (remove markdown asterisks, HTML tags, and emojis so it reads cleanly)
+    const cleanText = text.replace(/<[^>]*>?/gm, '').replace(/[*_#]/g, '');
+    
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    
+    // Find a "sweet" female voice. Chrome provides 'Google UK English Female' or 'Google US English' which sound great.
+    const voices = window.speechSynthesis.getVoices();
+    const sweetVoice = voices.find(v => v.name.includes('Female') || v.name.includes('Samantha') || v.name.includes('Google UK English Female')) || voices[0];
+    
+    if (sweetVoice) utterance.voice = sweetVoice;
+    
+    // Adjust pitch and speed to make it sound pleasant and natural
+    utterance.pitch = 1.2; 
+    utterance.rate = 1.05;
+    
+    window.speechSynthesis.speak(utterance);
+}    
         window.sendCustomChatMessage = async function() {
             const inputField = document.getElementById('custom-chat-input');
             const message = inputField.value.trim();
@@ -3056,6 +3141,7 @@
                 document.getElementById(loadingId).remove();
                 if (data.status === 'success') {
                     appendChatMessage(data.reply, false);
+                    speakNexusResponse(data.reply); /
                 } else {
                     appendChatMessage("⚠️ Connection to Nexus mainframe lost.", false);
                 }
