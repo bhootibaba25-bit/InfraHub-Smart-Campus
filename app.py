@@ -569,34 +569,27 @@ def ai_custom_chat():
                 if t_record:
                     search_results.append(t_record)
         
-        # B. Look for keywords (words longer than 3 letters like "smart", "room", "315")
-        words = [w for w in re.findall(r'\b\w+\b', user_message) if len(w) > 3]
-        if words:
-            conditions = " OR ".join(["issue ILIKE %s OR location ILIKE %s" for _ in words])
-            params = []
-            for w in words:
-                params.extend([f"%{w}%", f"%{w}%"])
-            
-            query = f"SELECT * FROM tickets WHERE {conditions} ORDER BY created_at DESC LIMIT 5"
-            word_records = conn.execute(query, tuple(params)).fetchall()
-            
-            for w_rec in word_records:
-                if not any(sr['ticket_id'] == w_rec['ticket_id'] for sr in search_results):
-                    search_results.append(w_rec)
+        # B. Semantic Context Buffer (The Ultimate Typo Fix)
+        # By feeding the 25 most recent relevant tickets directly to Gemini, 
+        # the AI natively understands typos (samrt = smart) and synonyms perfectly.
+        if user_role in ['Portal Admin', 'Master Admin']:
+            recent_tickets = conn.execute("SELECT * FROM tickets ORDER BY last_updated_at DESC LIMIT 25").fetchall()
+        elif user_role in ['Campus Technician', 'Master Technician']:
+            recent_tickets = conn.execute("SELECT * FROM tickets WHERE assigned_technician = %s ORDER BY last_updated_at DESC LIMIT 25", (user_name,)).fetchall()
+        else:
+            recent_tickets = conn.execute("SELECT * FROM tickets WHERE user_name = %s ORDER BY last_updated_at DESC LIMIT 25", (user_name,)).fetchall()
+
+        for t_rec in recent_tickets:
+            if not any(sr['ticket_id'] == t_rec['ticket_id'] for sr in search_results):
+                search_results.append(t_rec)
 
         # C. Inject findings into Gemini's context window
         if search_results:
-            live_context += "\nRelevant Database Records Found For This Query:\n"
+            live_context += "\nRelevant Database Records For Context:\n"
             for r in search_results:
                 live_context += f"- Ticket {r['ticket_id']}: '{r['issue']}' | Loc: {r['building']} {r['location']} | Status: {r['status']} | Tech: {r['assigned_technician']}\n"
-        else:
-            # Fallback: Just give Gemini the 3 most recent tickets to talk about
-            recent = conn.execute("SELECT ticket_id, issue, status, building, location FROM tickets ORDER BY created_at DESC LIMIT 3").fetchall()
-            if recent:
-                live_context += "\nRecent Campus Ticket History:\n"
-                for r in recent:
-                    live_context += f"- Ticket {r['ticket_id']}: '{r['issue']}' | Loc: {r['building']} {r['location']} | Status: {r['status']}\n"
 
+        
         # 3. Send to Gemini
         task_client = AI_POOL.get("chat")
         if task_client:
