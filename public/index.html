@@ -291,6 +291,17 @@
                 font-weight: normal; font-size: 0.85rem; line-height: 1.6;
             }
             .supplier-tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+            /* FEATURE 6: LIGHT THEME OVERRIDES */
+            body.light-theme { background-image: none; background-color: #f8fafc; }
+            .light-theme .auth-card, .light-theme .sidebar, .light-theme .topbar, .light-theme .module-card, .light-theme .stat-card {
+                background: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            }
+            .light-theme .ticket-card { background: #f1f5f9; border: 1px solid #cbd5e1; }
+            .light-theme h1, .light-theme h2, .light-theme h3, .light-theme h4, .light-theme p, .light-theme span:not(.badge), .light-theme label, .light-theme .nav-item { color: #0f172a !important; text-shadow: none; }
+            .light-theme input, .light-theme select, .light-theme textarea { background: #ffffff !important; border: 1px solid #cbd5e1 !important; color: #0f172a !important; }
+            .light-theme .nav-item:hover, .light-theme .nav-item.active { background-color: #e2e8f0; }
+            .light-theme .sidebar-footer { border-top: 1px solid #cbd5e1; }
+
         </style>
     </head>
     <body>
@@ -318,6 +329,9 @@
                     <div class="forgot-password">
                         <a href="#" id="go-to-forgot-password">Forgot Password?</a>
                     </div>
+                    <button type="button" class="primary-btn" onclick="biometricLogin()" style="background-color: transparent; border: 2px solid #38bdf8; color: #38bdf8; margin-top: 10px;">
+                        <i class="fa-solid fa-fingerprint"></i> Sign in with Biometrics
+                    </button>
                     <button type="submit" class="primary-btn">Sign in</button>
                 </form>
                 <p class="footer-link">Don't have an account? <a href="#" id="go-to-create">Create one</a></p>
@@ -439,24 +453,20 @@
             
             <main class="main-content">
                 <header class="topbar">
-                    <h2 id="module-title">Welcome</h2>
-                    <div class="topbar-actions" style="position: relative;">
-                        <button class="icon-btn" onclick="toggleNotifications()">
+                    <h2 id="module-title" data-i18n="welcome">Welcome</h2>
+                    <div class="topbar-actions" style="display: flex; gap: 15px; align-items: center;">
+                        <select id="lang-selector" onchange="switchLanguage(this.value)" style="background: rgba(255,255,255,0.1); color: white; border: none; padding: 5px 10px; border-radius: 8px; outline: none; font-size: 0.85rem;">
+                            <option value="en" style="color: black;">English</option>
+                            <option value="hi" style="color: black;">हिंदी (Hindi)</option>
+                            <option value="mr" style="color: black;">मराठी (Marathi)</option>
+                        </select>
+                        <button class="icon-btn" onclick="toggleTheme()" title="Toggle Light/Dark Mode">
+                            <i class="fa-solid fa-moon" id="theme-icon"></i>
+                        </button>
+                        <button class="icon-btn" onclick="toggleNotifications()" style="position: relative;">
                             <i class="fa-regular fa-bell"></i>
                             <span id="notif-badge" class="hidden" style="position:absolute; top:-5px; right:-5px; background:#ef4444; color:white; font-size:0.6rem; border-radius:50%; padding:2px 5px; font-weight:bold;"></span>
                         </button>
-                        
-                        <div id="notif-panel" class="hidden" style="position: absolute; right: 0; top: 40px; width: 340px; background: rgba(27, 51, 62, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; padding: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 1000; max-height: 400px; overflow-y: auto; text-align: left;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; margin-bottom: 10px;">
-                                <h4 style="color: white; font-size: 0.95rem; margin: 0;">System Notifications</h4>
-                                <button onclick="markNotificationsRead()" style="background: rgba(56, 189, 248, 0.2); border: 1px solid #38bdf8; color: #38bdf8; border-radius: 4px; padding: 3px 8px; font-size: 0.75rem; cursor: pointer; font-weight: bold;">
-                                    Mark Read
-                                </button>
-                            </div>
-                            <div id="notif-list">
-                                <p style="color:rgba(255,255,255,0.6); font-size:0.85rem;">No new notifications</p>
-                            </div>
-                        </div>
                     </div>
                 </header>
                 <div id="module-display-area" class="content-wrapper"></div>
@@ -532,6 +542,76 @@
             </div>
         </div>
         <script>
+            // --- FEATURE 5: Multi-Language (i18n) Engine ---
+        const i18n = {
+            en: { welcome: "Welcome", tasks: "My Tasks", inventory: "Digital Stockroom" },
+            hi: { welcome: "स्वागत है", tasks: "मेरे कार्य", inventory: "डिजिटल स्टोररूम" },
+            mr: { welcome: "स्वागत आहे", tasks: "माझी कामे", inventory: "डिजिटल स्टॉक रूम" }
+        };
+        function switchLanguage(lang) {
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (i18n[lang] && i18n[lang][key]) el.innerText = i18n[lang][key];
+            });
+            // Force re-render of sidebar to translate names if needed
+        }
+
+        // --- FEATURE 6: Dark/Light Theme Engine ---
+        function toggleTheme() {
+            document.body.classList.toggle('light-theme');
+            const icon = document.getElementById('theme-icon');
+            if(document.body.classList.contains('light-theme')) {
+                icon.classList.replace('fa-moon', 'fa-sun');
+            } else {
+                icon.classList.replace('fa-sun', 'fa-moon');
+            }
+        }
+
+        // --- FEATURE 7: Biometric Login (WebAuthn Simulator) ---
+        async function biometricLogin() {
+            if (!window.PublicKeyCredential) {
+                return alert("Biometrics not supported on this device.");
+            }
+            try {
+                // Triggers native FaceID / TouchID prompt
+                const assertion = await navigator.credentials.get({
+                    publicKey: {
+                        challenge: new Uint8Array(32), // Mock challenge
+                        allowCredentials: [],
+                        userVerification: "required",
+                        timeout: 60000
+                    }
+                });
+                if (assertion) {
+                    // In a real app, send 'assertion' to backend to verify signature. 
+                    // For now, auto-login the last saved user or Admin.
+                    const savedEmail = localStorage.getItem('hub_biometric_email') || 'admin@campus.edu';
+                    document.getElementById('login-email').value = savedEmail;
+                    document.getElementById('login-password').value = 'Bypass'; // Mock bypass trigger
+                    alert("Biometric verified. Authenticating...");
+                    // Call backend biometric route here
+                }
+            } catch (err) {
+                alert("Biometric login failed or canceled.");
+            }
+        }
+
+        // --- FEATURE 1 & 2: Predictive & Vendor Data Fetchers ---
+        async function fetchPredictiveData() {
+            document.getElementById('predictive-area').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Running AI models...';
+            try {
+                const res = await fetch('/api/ai/predictive-maintenance');
+                const data = await res.json();
+                let html = data.assets.map(a => `
+                    <div style="background: rgba(255,255,255,0.05); border-left: 4px solid #ef4444; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
+                        <h4 style="color:#fca5a5;"><i class="fa-solid fa-triangle-exclamation"></i> High Risk of Failure: ${a.asset_name}</h4>
+                        <p style="font-size: 0.85rem; color: #cbd5e1;">Location: ${a.location} | Breakdowns in 6 months: ${a.repair_count}</p>
+                        <p style="font-size: 0.85rem; color: #38bdf8; margin-top:5px;"><strong>AI Suggestion:</strong> ${a.ai_suggestion}</p>
+                    </div>
+                `).join('');
+                document.getElementById('predictive-area').innerHTML = html;
+            } catch(e) { document.getElementById('predictive-area').innerHTML = "Data offline."; }
+        }
         // ==========================================
         // TOP LEVEL CONSTANTS AND GLOBALS
         // ==========================================
@@ -647,11 +727,27 @@
         const adminModules = [
 
             
-        // ↓↓↓ SLEEK GLASSMORPHISM AI COMMAND CENTER ↓↓↓
-        // ↓↓↓ AI COMMAND CENTER WITH HEATMAP ↓↓↓
-        // ↓↓↓ TRIPLE-INTEGRATION SYSTEM CONFIGURATION ↓↓↓
-    // ↓↓↓ CLEAN AI COMMAND CENTER (NO RLHF CLUTTER) ↓↓↓
+        
             { 
+                id: 'predictive-maintenance', icon: 'fa-heart-crack', name: 'Predictive AI Health', 
+                content: `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3><i class="fa-solid fa-brain"></i> AI Asset Lifespan Predictions</h3>
+                        <button onclick="fetchPredictiveData()" class="primary-btn" style="width:auto; padding:8px 15px;"><i class="fa-solid fa-arrows-rotate"></i> Run Diagnostics</button>
+                    </div>
+                    <div id="predictive-area"><p>Scanning asset history...</p></div>
+                ` 
+            },
+            { 
+                id: 'vendor-management', icon: 'fa-truck', name: 'External Vendors', 
+                content: `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3><i class="fa-solid fa-handshake"></i> 3rd-Party SLA Tracking</h3>
+                    </div>
+                    <div id="vendor-area"><p>Loading external contracts...</p></div>
+                ` 
+            },
+           { 
                 id: 'hr-control-deck', icon: 'fa-user-shield', name: 'HR & Approvals', 
                 content: `
                     <h3 style="color: white; margin-bottom: 20px;"><i class="fa-solid fa-user-lock"></i> Gatekeeper Authorization Panel</h3>
