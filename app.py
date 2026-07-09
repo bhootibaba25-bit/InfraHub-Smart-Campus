@@ -4,6 +4,7 @@ import threading
 import time
 import random
 import csv
+import re
 from io import StringIO
 from datetime import datetime
 import psycopg2
@@ -504,35 +505,72 @@ def ai_custom_chat():
 
     conn = get_db_connection()
     try:
-        # 1. Gather Live Database Context based on who is asking!
         live_context = ""
+        
+        # 1. Base Stats (Keep the general counts)
         if user_role in ['Portal Admin', 'Master Admin']:
             pending = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status = 'Pending'").fetchone()['c']
             active = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status IN ('Assigned', 'In Progress')").fetchone()['c']
-            live_context = f"System Status: There are {pending} pending tickets waiting to be assigned, and {active} active tickets being worked on right now."
-            
+            live_context += f"System Stats: {pending} pending, {active} active.\n"
         elif user_role in ['Campus Technician', 'Master Technician']:
             my_tasks = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE assigned_technician = %s AND status IN ('Assigned', 'In Progress', 'Pending')", (user_name,)).fetchone()['c']
-            live_context = f"Technician Status: You currently have {my_tasks} active tasks in your queue today."
-            
+            live_context += f"Technician Stats: You have {my_tasks} active tasks.\n"
         else:
-            my_tickets = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE user_name = %s AND status != 'Resolved' AND status != 'Closed' AND status != 'Cancelled'", (user_name,)).fetchone()['c']
-            live_context = f"User Status: You currently have {my_tickets} active maintenance requests open."
+            my_tickets = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE user_name = %s AND status NOT IN ('Resolved', 'Closed', 'Cancelled')", (user_name,)).fetchone()['c']
+            live_context += f"User Stats: You have {my_tickets} active requests.\n"
 
-        # 2. Send to Gemini to answer EVERYTHING
+        # 2. Dynamic Database Search (The Upgraded Memory)
+        search_results = []
+        
+        # A. Look for specific Ticket IDs in the chat (e.g., req-8342)
+        ticket_matches = re.findall(r'req-\d+', user_message, re.IGNORECASE)
+        if ticket_matches:
+            for t_id in ticket_matches:
+                t_record = conn.execute("SELECT * FROM tickets WHERE ticket_id ILIKE %s", (t_id,)).fetchone()
+                if t_record:
+                    search_results.append(t_record)
+        
+        # B. Look for keywords (words longer than 3 letters like "smart", "room", "315")
+        words = [w for w in re.findall(r'\b\w+\b', user_message) if len(w) > 3]
+        if words:
+            conditions = " OR ".join(["issue ILIKE %s OR location ILIKE %s" for _ in words])
+            params = []
+            for w in words:
+                params.extend([f"%{w}%", f"%{w}%"])
+            
+            query = f"SELECT * FROM tickets WHERE {conditions} ORDER BY created_at DESC LIMIT 5"
+            word_records = conn.execute(query, tuple(params)).fetchall()
+            
+            for w_rec in word_records:
+                if not any(sr['ticket_id'] == w_rec['ticket_id'] for sr in search_results):
+                    search_results.append(w_rec)
+
+        # C. Inject findings into Gemini's context window
+        if search_results:
+            live_context += "\nRelevant Database Records Found For This Query:\n"
+            for r in search_results:
+                live_context += f"- Ticket {r['ticket_id']}: '{r['issue']}' | Loc: {r['building']} {r['location']} | Status: {r['status']} | Tech: {r['assigned_technician']}\n"
+        else:
+            # Fallback: Just give Gemini the 3 most recent tickets to talk about
+            recent = conn.execute("SELECT ticket_id, issue, status, building, location FROM tickets ORDER BY created_at DESC LIMIT 3").fetchall()
+            if recent:
+                live_context += "\nRecent Campus Ticket History:\n"
+                for r in recent:
+                    live_context += f"- Ticket {r['ticket_id']}: '{r['issue']}' | Loc: {r['building']} {r['location']} | Status: {r['status']}\n"
+
+        # 3. Send to Gemini
         task_client = AI_POOL.get("chat")
         if task_client:
             prompt = f"""
             You are 'InfraHub Nexus', the highly advanced, professional, and slightly futuristic AI assistant for a smart campus maintenance portal.
             The person talking to you is {user_name}, and their system role is {user_role}. 
             
-            [LIVE SYSTEM CONTEXT (Do not mention this context unless asked)]: 
+            [LIVE SYSTEM CONTEXT (Do not mention this context unless asked. It contains real database records pulled specifically for this user's query)]: 
             {live_context}
             
             Answer the user's query intelligently, directly, and concisely. 
             - If they ask general knowledge questions, answer them normally.
-            - If they chat casually, be friendly but professional.
-            - If they ask about their tickets, tasks, or the system, use the LIVE SYSTEM CONTEXT provided above to answer them accurately.
+            - If they ask about their tickets, tasks, or specific items (like a TV or a REQ- number), rely ONLY on the 'Relevant Database Records Found' provided in the LIVE SYSTEM CONTEXT. 
             
             User's Query: "{user_message}"
             """
@@ -541,12 +579,12 @@ def ai_custom_chat():
             return jsonify({"status": "success", "reply": response.text.strip()})
         else:
             return jsonify({"status": "error", "reply": "My AI neural net is currently offline. Please check the API key."})
-        
+            
     except Exception as e:
         print(f"Chat AI Error: {e}")
         return jsonify({"status": "error", "reply": f"My neural net is experiencing interference: {str(e)}"})
     finally:
-        conn.close()        
+        conn.close()       
 
 @app.route('/api/ai/quick-fix', methods=['POST'])
 def ai_quick_fix():
