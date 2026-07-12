@@ -2080,84 +2080,93 @@ function startAdminVoiceCommand() {
             document.getElementById('universal-modal').classList.remove('hidden');
         }
 
+        // ==========================================
+        // TICKET DETAILS MODAL
+        // ==========================================
         window.showTicketDetails = function(ticketId) {
-        const t = window.ticketCache[ticketId];
-        if(!t) return;
+            const t = window.ticketCache[ticketId];
+            if(!t) return;
 
-        window.viewTTR = function(ticketId) {
-    const t = window.ticketCache[ticketId];
-    if (!t) return;
-    
-    let created = t.created_at || 'Unknown';
-    let updated = t.last_updated_at || 'Unknown';
-    let timeTaken = t.time_taken_mins || 0;
-    
-    showModal(`TTR Playback: ${ticketId}`, `
-        <div style="background: rgba(0,0,0,0.2); padding: 20px; border-radius: 8px;">
-            <h3 style="color: #38bdf8; margin-bottom: 15px;"><i class="fa-solid fa-stopwatch"></i> Total Time to Resolution: ${timeTaken} Mins</h3>
-            <ul style="color: #cbd5e1; list-style-type: none; padding: 0; font-size: 0.95rem; line-height: 2;">
-                <li><i class="fa-solid fa-play" style="color: #10b981; width: 25px;"></i> <b>Created At:</b> ${created}</li>
-                <li><i class="fa-solid fa-flag-checkered" style="color: #a855f7; width: 25px;"></i> <b>Last Updated:</b> ${updated}</li>
-                <li><i class="fa-solid fa-user-gear" style="color: #fbbf24; width: 25px;"></i> <b>Handled By:</b> ${t.assigned_technician || 'Unassigned'}</li>
-                <li><i class="fa-solid fa-signal" style="color: #38bdf8; width: 25px;"></i> <b>Final Status:</b> ${t.status}</li>
-            </ul>
-        </div>
-    `);
-};
+            let createdDate = t.created_at ? new Date(String(t.created_at).replace(' ', 'T')) : new Date();
+            if (isNaN(createdDate)) createdDate = new Date();
+            let resolveDate = new Date(createdDate.getTime() + (48 * 60 * 60 * 1000)).toLocaleDateString();
 
-        let createdDate = t.created_at ? new Date(String(t.created_at).replace(' ', 'T')) : new Date();
-        if (isNaN(createdDate)) createdDate = new Date();
-        let resolveDate = new Date(createdDate.getTime() + (48 * 60 * 60 * 1000)).toLocaleDateString();
+            // Generate Image HTML (Split Screen Feature)
+            // ==========================================
+            // STRICT PHOTO VISIBILITY RULES
+            // ==========================================
+            let initPhotoHtml = '';
+            let resPhotoHtml = '';
 
-        // Generate Image HTML (Split Screen Feature)
-        // ==========================================
-        // STRICT PHOTO VISIBILITY RULES
-        // ==========================================
-        let initPhotoHtml = '';
-        let resPhotoHtml = '';
+            const noPhotoBox = `<div style="padding:40px 0; text-align:center; color:rgba(255,255,255,0.4); background:rgba(0,0,0,0.2); border-radius:8px;"><i class="fa-solid fa-image"></i> No photo</div>`;
+            const noResBox = `<div style="padding:40px 0; text-align:center; color:rgba(255,255,255,0.4); background:rgba(0,0,0,0.2); border-radius:8px;"><i class="fa-solid fa-camera"></i> Awaiting completion image</div>`;
+            const restrictedBox = `<div style="padding:40px 0; text-align:center; color:rgba(239, 68, 68, 0.8); background:rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius:8px;"><i class="fa-solid fa-lock"></i> Restricted Access</div>`;
 
-        const noPhotoBox = `<div style="padding:40px 0; text-align:center; color:rgba(255,255,255,0.4); background:rgba(0,0,0,0.2); border-radius:8px;"><i class="fa-solid fa-image"></i> No photo</div>`;
-        const noResBox = `<div style="padding:40px 0; text-align:center; color:rgba(255,255,255,0.4); background:rgba(0,0,0,0.2); border-radius:8px;"><i class="fa-solid fa-camera"></i> Awaiting completion image</div>`;
-        const restrictedBox = `<div style="padding:40px 0; text-align:center; color:rgba(239, 68, 68, 0.8); background:rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius:8px;"><i class="fa-solid fa-lock"></i> Restricted Access</div>`;
+            let userPic = (t.photo_attached && t.photo_attached !== 'None') ? `<img src="${t.photo_attached}" style="width:100%; max-height:200px; object-fit:cover; border-radius:8px;">` : noPhotoBox;
+            let techPic = (t.resolution_photo && t.resolution_photo !== 'None') ? `<img src="${t.resolution_photo}" style="width:100%; max-height:200px; object-fit:cover; border-radius:8px;">` : noResBox;
 
-        let userPic = (t.photo_attached && t.photo_attached !== 'None') ? `<img src="${t.photo_attached}" style="width:100%; max-height:200px; object-fit:cover; border-radius:8px;">` : noPhotoBox;
-        let techPic = (t.resolution_photo && t.resolution_photo !== 'None') ? `<img src="${t.resolution_photo}" style="width:100%; max-height:200px; object-fit:cover; border-radius:8px;">` : noResBox;
+            if (loggedInRole === 'Campus User' || loggedInRole === 'Campus Staff') {
+                initPhotoHtml = restrictedBox; // User cannot see the initial photo
+                resPhotoHtml = techPic;        // User CAN see tech's resolution
+            } else if (loggedInRole === 'Campus Technician') {
+                initPhotoHtml = userPic;       // Tech CAN see user's initial photo
+                resPhotoHtml = restrictedBox;  // Tech cannot see resolution photo
+            } else {
+                // Admin / Master Tech sees BOTH
+                initPhotoHtml = userPic;
+                resPhotoHtml = techPic;
+            }
+            showModal(
+                `Detailed Ticket Overview: ${t.ticket_id}`, 
+                `
+                <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; max-height: 70vh; overflow-y: auto;">
+                    <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-clipboard-question"></i> Issue Logged:</strong> ${safeText(t.issue)}</p>
+                    <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-building"></i> Routed Dept:</strong> ${safeText(t.department)}</p>
+                    <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-robot"></i> AI Diagnosis:</strong> <span style="font-style: italic;">"${safeText(t.ai_analysis)}"</span></p>
+                    <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-hard-hat"></i> Assigned Technician:</strong> <span style="color: #38bdf8; font-weight: bold;">${safeText(t.assigned_technician) || 'Pending Agent Dispatch'}</span></p>
+                    <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-signal"></i> Current Status:</strong> <span style="background: rgba(255,255,255,0.2); padding: 3px 8px; border-radius: 4px;">${safeText(t.status)}</span></p>
 
-        if (loggedInRole === 'Campus User' || loggedInRole === 'Campus Staff') {
-            initPhotoHtml = restrictedBox; // User cannot see the initial photo
-            resPhotoHtml = techPic;        // User CAN see tech's resolution
-        } else if (loggedInRole === 'Campus Technician') {
-            initPhotoHtml = userPic;       // Tech CAN see user's initial photo
-            resPhotoHtml = restrictedBox;  // Tech cannot see resolution photo
-        } else {
-            // Admin / Master Tech sees BOTH
-            initPhotoHtml = userPic;
-            resPhotoHtml = techPic;
-        }
-        showModal(
-            `Detailed Ticket Overview: ${t.ticket_id}`, 
-            `
-            <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; max-height: 70vh; overflow-y: auto;">
-                <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-clipboard-question"></i> Issue Logged:</strong> ${safeText(t.issue)}</p>
-                <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-building"></i> Routed Dept:</strong> ${safeText(t.department)}</p>
-                <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-robot"></i> AI Diagnosis:</strong> <span style="font-style: italic;">"${safeText(t.ai_analysis)}"</span></p>
-                <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-hard-hat"></i> Assigned Technician:</strong> <span style="color: #38bdf8; font-weight: bold;">${safeText(t.assigned_technician) || 'Pending Agent Dispatch'}</span></p>
-                <p style="margin-bottom: 10px;"><strong><i class="fa-solid fa-signal"></i> Current Status:</strong> <span style="background: rgba(255,255,255,0.2); padding: 3px 8px; border-radius: 4px;">${safeText(t.status)}</span></p>
-
-                <div style="display:flex; gap:15px; margin-top:20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top:20px;">
-                    <div style="flex:1;">
-                        <h5 style="color:#9ca3af; margin-bottom:8px; font-size:0.8rem; text-transform:uppercase;">Initial Defect Proof</h5>
-                        ${initPhotoHtml}
-                    </div>
-                    <div style="flex:1;">
-                        <h5 style="color:#9ca3af; margin-bottom:8px; font-size:0.8rem; text-transform:uppercase;">Technician Resolution Picture</h5>
-                        ${resPhotoHtml}
+                    <div style="display:flex; gap:15px; margin-top:20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top:20px;">
+                        <div style="flex:1;">
+                            <h5 style="color:#9ca3af; margin-bottom:8px; font-size:0.8rem; text-transform:uppercase;">Initial Defect Proof</h5>
+                            ${initPhotoHtml}
+                        </div>
+                        <div style="flex:1;">
+                            <h5 style="color:#9ca3af; margin-bottom:8px; font-size:0.8rem; text-transform:uppercase;">Technician Resolution Picture</h5>
+                            ${resPhotoHtml}
+                        </div>
                     </div>
                 </div>
-            </div>
-            `
-        );
-    }
+                `
+            );
+        };
+
+        // ==========================================
+        // TTR PLAYBACK MODAL
+        // ==========================================
+        window.viewTTR = function(ticketId) {
+            const t = window.ticketCache[ticketId];
+            if (!t) {
+                alert("Ticket data not found in cache.");
+                return;
+            }
+            
+            let created = t.created_at || 'Unknown';
+            let updated = t.last_updated_at || 'Unknown';
+            let timeTaken = t.time_taken_mins || 0;
+            
+            showModal(`TTR Playback: ${ticketId}`, `
+                <div style="background: rgba(0,0,0,0.2); padding: 20px; border-radius: 8px;">
+                    <h3 style="color: #38bdf8; margin-bottom: 15px;"><i class="fa-solid fa-stopwatch"></i> Total Time to Resolution: ${timeTaken} Mins</h3>
+                    <ul style="color: #cbd5e1; list-style-type: none; padding: 0; font-size: 0.95rem; line-height: 2;">
+                        <li><i class="fa-solid fa-play" style="color: #10b981; width: 25px;"></i> <b>Created At:</b> ${created}</li>
+                        <li><i class="fa-solid fa-flag-checkered" style="color: #a855f7; width: 25px;"></i> <b>Last Updated:</b> ${updated}</li>
+                        <li><i class="fa-solid fa-user-gear" style="color: #fbbf24; width: 25px;"></i> <b>Handled By:</b> ${t.assigned_technician || 'Unassigned'}</li>
+                        <li><i class="fa-solid fa-signal" style="color: #38bdf8; width: 25px;"></i> <b>Final Status:</b> ${t.status}</li>
+                    </ul>
+                </div>
+            `);
+        };
 
     window.transferTicket = async function(ticketId) {
     const depts = [
