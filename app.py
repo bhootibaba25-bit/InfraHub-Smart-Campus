@@ -16,11 +16,9 @@ from google import genai
 from google.genai import types
 from flask_mail import Mail, Message
 from psycopg2 import pool
-from twilio.twiml.messaging_response import MessagingResponse
-from twilio.request_validator import RequestValidator
 from functools import wraps
 from werkzeug.middleware.proxy_fix import ProxyFix
-from twilio.rest import Client
+
 
 # ==========================================
 # 1. SECURE SETUP & EMAIL CONFIGURATION
@@ -160,8 +158,8 @@ def init_db():
         conn.execute('''CREATE TABLE IF NOT EXISTS leave_requests (id SERIAL PRIMARY KEY, tech_name TEXT, start_date TEXT, end_date TEXT, reason TEXT, status TEXT DEFAULT 'Pending')''')
         conn.execute('''CREATE TABLE IF NOT EXISTS tool_checkouts (id SERIAL PRIMARY KEY, tool_name TEXT, tech_name TEXT, checkout_date TIMESTAMP DEFAULT NOW(), status TEXT DEFAULT 'Borrowed')''')
         conn.execute('''CREATE TABLE IF NOT EXISTS password_resets (email TEXT PRIMARY KEY, otp TEXT, created_at TIMESTAMP DEFAULT NOW())''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS whatsapp_sessions (phone_number TEXT PRIMARY KEY, current_state TEXT DEFAULT 'IDLE', temp_issue TEXT, temp_building TEXT, last_interaction TIMESTAMP DEFAULT NOW())''')
         conn.execute('''CREATE TABLE IF NOT EXISTS tickets (ticket_id TEXT PRIMARY KEY, user_name TEXT, contact_number TEXT, role TEXT, department TEXT, building TEXT, location TEXT, issue TEXT, photo_attached TEXT, priority TEXT, ai_analysis TEXT, assigned_technician TEXT DEFAULT 'Unassigned', status TEXT DEFAULT 'Pending', decline_reason TEXT, read_status INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT NOW(), last_updated_at TIMESTAMP DEFAULT NOW(), qa_sent INTEGER DEFAULT 0, started_at TIMESTAMP, time_taken_mins INTEGER DEFAULT 0, user_rating INTEGER DEFAULT 0, user_feedback TEXT, resolution_photo TEXT DEFAULT 'None')''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS system_notifications (id SERIAL PRIMARY KEY,target_user TEXT,target_role TEXT,message TEXT,is_urgent INTEGER DEFAULT 0,is_read INTEGER DEFAULT 0,created_at TIMESTAMP DEFAULT NOW())''')
         
         # Add the banned users table for the IP blocking feature
         conn.execute('''CREATE TABLE IF NOT EXISTS banned_users (identifier TEXT PRIMARY KEY)''')
@@ -387,7 +385,7 @@ def export_tickets():
     try:
         tickets = conn.execute("""
             SELECT t.ticket_id, t.user_name, t.department, t.issue, t.status, t.time_taken_mins, 
-                   tech.current_active_hours, t.created_at
+                   COALESCE(tech.current_active_hours, 0) as current_active_hours, t.created_at
             FROM tickets t 
             LEFT JOIN technicians tech ON t.assigned_technician = tech.name
             ORDER BY t.created_at DESC
@@ -402,8 +400,10 @@ def export_tickets():
         
         output = si.getvalue()
         return Response(output, mimetype="text/csv", headers={"Content-Disposition": "attachment;filename=InfraHub_Finance_Report.csv"})
-    except Exception as e: return jsonify({"status": "error", "message": str(e)}), 500
-    finally: conn.close()
+    except Exception as e: 
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally: 
+        conn.close()
 
 @app.route('/api/analytics', methods=['GET'])
 def get_analytics():
@@ -631,11 +631,9 @@ def ai_quick_fix():
 @app.route('/api/tickets', methods=['POST'])
 def create_ticket():
     data = request.json
-    client_ip = request.remote_addr # IP Logging Feature
+    client_ip = request.remote_addr 
     conn = get_db_connection()
     try:
-        # Banned User Check
-        conn.execute("CREATE TABLE IF NOT EXISTS banned_users (identifier TEXT PRIMARY KEY)")
         is_banned = conn.execute("SELECT * FROM banned_users WHERE identifier = %s OR identifier = %s", (client_ip, data['user_name'])).fetchone()
         if is_banned:
             return jsonify({"status": "error", "message": "Security Alert: This device/account has been banned."}), 403
@@ -656,7 +654,6 @@ def create_ticket():
         if duplicate_check:
             return jsonify({"status": "error", "message": f"Duplicate Prevented: Our {ticket_dept} team is already working on an active issue in {bldg} - {loc}!"}), 400
 
-        # Exam Week Maintenance Pauser
         is_exam_week = True 
         is_noisy = "drill" in issue.lower() or "hammer" in issue.lower()
         if is_exam_week and is_noisy and ai_decision['priority'] != 'Urgent':
@@ -1111,11 +1108,27 @@ def monitoring_agent_loop():
     last_pm_time = time.time() 
     
     while True:
-       
         conn = None
         try:
             conn = get_db_connection() 
             
+            # --- AUTOMATED ESCALATION MATRIX ---
+            escalations = conn.execute("""
+                SELECT ticket_id, issue, created_at 
+                FROM tickets 
+                WHERE priority = 'Urgent' 
+                AND status = 'Pending' 
+                AND assigned_technician = 'Unassigned'
+                AND EXTRACT(EPOCH FROM (NOW() - created_at))/60 > 15
+                AND decline_reason IS NULL
+            """).fetchall()
+            
+            for e in escalations:
+                add_notification(None, 'Portal Admin', f"🚨 CRITICAL ESCALATION: Ticket {e['ticket_id']} has been unassigned for more than 15 minutes!", is_urgent=1, db_conn=conn)
+                print(f"🚨 [ESCALATION MATRIX] Triggered for {e['ticket_id']}")
+                conn.execute("UPDATE tickets SET ai_analysis = ai_analysis || ' [ESCALATION SENT]' WHERE ticket_id = %s", (e['ticket_id'],))
+            
+            # --- PREVENTIVE MAINTENANCE GENERATOR ---
             if time.time() - last_pm_time > 7776000: 
                 try:
                     task = random.choice([
@@ -1141,6 +1154,7 @@ def monitoring_agent_loop():
                 except Exception as e:
                     print("PM Engine Error:", e)
 
+            # --- QA PENDING CHECK ---
             qa_pending = conn.execute("""
                 SELECT ticket_id, user_name, assigned_technician FROM tickets 
                 WHERE status = 'Resolved' AND qa_sent = 0 
@@ -1153,7 +1167,6 @@ def monitoring_agent_loop():
                 
                 if user and user['email']:
                     subject = f"Did we fix it? QA Survey for {ticket_id}"
-                    # Grabs your live domain from the .env file, or falls back to localhost for testing
                     base_url = os.getenv("FRONTEND_URL", "http://127.0.0.1:5005")
                     link_yes = f"{base_url}/api/qa/{ticket_id}?answer=yes"
                     link_no = f"{base_url}/api/qa/{ticket_id}?answer=no"
@@ -1161,10 +1174,10 @@ def monitoring_agent_loop():
                     body = f"Hi {q['user_name']},\n\nYour maintenance request {ticket_id} was marked as 'Resolved' by {q['assigned_technician']}.\n\nTo ensure quality, please let us know if the issue was completely fixed by clicking one of the links below:\n\nYES, IT IS FIXED: {link_yes}\n\nNO, STILL BROKEN: {link_no}\n\nThank you,\nInfraHub QA Bot"
                     
                     threading.Thread(target=send_async_email, args=(app, user['email'], subject, body)).start()
-                    print(f"🤖 [QA AGENT] Sent quality check email to {q['user_name']} for {ticket_id}")
                 
                 conn.execute("UPDATE tickets SET qa_sent = 1 WHERE ticket_id = %s", (ticket_id,))
             
+            # --- TECHNICIAN WORKLOAD BALANCER ---
             techs = conn.execute("SELECT name, max_shift_hours, overtime_opt_in FROM technicians WHERE is_on_shift = 1 AND on_break = 0").fetchall()
             for t in techs:
                 max_minutes = (t['max_shift_hours'] if t['max_shift_hours'] else 8) * 60
@@ -1201,6 +1214,7 @@ def monitoring_agent_loop():
                         conn.execute("UPDATE tickets SET status = 'Assigned' WHERE ticket_id = %s", (next_ticket['ticket_id'],))
                         add_notification(t['name'], None, f"NEW ASSIGNMENT: Task {next_ticket['ticket_id']} assigned.", db_conn=conn)
 
+            # --- ABSENTEE RE-ROUTING ---
             absent_tasks = conn.execute('''
                 SELECT ticket_id, assigned_technician FROM tickets 
                 WHERE status IN ('Pending', 'Assigned') 
@@ -1209,18 +1223,13 @@ def monitoring_agent_loop():
             
             for task in absent_tasks:
                 conn.execute("UPDATE tickets SET assigned_technician = 'Unassigned', status = 'Pending' WHERE ticket_id = %s", (task['ticket_id'],))
-                add_notification(None, 'Portal Admin', f"SYSTEM REBALANCE: {task['assigned_technician']} went off duty. {task['ticket_id']} returned to AI Dispatcher.", is_urgent=1, db_conn=conn)
                 
-            overdue = conn.execute("SELECT ticket_id FROM tickets WHERE priority IN ('Urgent', 'High') AND status = 'Pending' AND assigned_technician = 'Unassigned'").fetchall()
-            for o in overdue:
-                conn.execute("UPDATE tickets SET status = 'Escalated' WHERE ticket_id = %s", (o['ticket_id'],))
-                add_notification(None, 'Portal Admin', f"ESCALATION: {o['ticket_id']} is critical and unassigned! Intervene.", is_urgent=1, db_conn=conn)
-            
             unassigned = conn.execute("SELECT ticket_id, department, building FROM tickets WHERE assigned_technician = 'Unassigned' AND status IN ('Pending', 'Escalated')").fetchall()
             for u in unassigned:
                 tech = tool_get_available_technician(u['department'], u['building'], db_conn=conn)
                 if tech['status'] == 'success':
                     tool_assign_ticket(u['ticket_id'], tech['technician_name'], db_conn=conn)
+
         except Exception as e: 
             print("Monitor Loop Error:", e)
         finally:
@@ -1852,7 +1861,9 @@ def self_resolve_ticket(ticket_id):
 
 
 
+
 if __name__ == '__main__':
+    init_db()
     # Start the monitoring agent ONLY when running the main app, 
     # preventing duplicates in multi-worker production environments.
     monitor_thread = threading.Thread(target=monitoring_agent_loop, daemon=True)
