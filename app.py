@@ -160,9 +160,17 @@ def init_db():
         conn.execute('''CREATE TABLE IF NOT EXISTS leave_requests (id SERIAL PRIMARY KEY, tech_name TEXT, start_date TEXT, end_date TEXT, reason TEXT, status TEXT DEFAULT 'Pending')''')
         conn.execute('''CREATE TABLE IF NOT EXISTS tool_checkouts (id SERIAL PRIMARY KEY, tool_name TEXT, tech_name TEXT, checkout_date TIMESTAMP DEFAULT NOW(), status TEXT DEFAULT 'Borrowed')''')
         conn.execute('''CREATE TABLE IF NOT EXISTS password_resets (email TEXT PRIMARY KEY, otp TEXT, created_at TIMESTAMP DEFAULT NOW())''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS whatsapp_sessions (phone_number TEXT PRIMARY KEY, current_state TEXT DEFAULT 'IDLE', temp_issue TEXT, temp_building TEXT, last_interaction TIMESTAMP DEFAULT NOW())''')
         conn.execute('''CREATE TABLE IF NOT EXISTS tickets (ticket_id TEXT PRIMARY KEY, user_name TEXT, contact_number TEXT, role TEXT, department TEXT, building TEXT, location TEXT, issue TEXT, photo_attached TEXT, priority TEXT, ai_analysis TEXT, assigned_technician TEXT DEFAULT 'Unassigned', status TEXT DEFAULT 'Pending', decline_reason TEXT, read_status INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT NOW(), last_updated_at TIMESTAMP DEFAULT NOW(), qa_sent INTEGER DEFAULT 0, started_at TIMESTAMP, time_taken_mins INTEGER DEFAULT 0, user_rating INTEGER DEFAULT 0, user_feedback TEXT, resolution_photo TEXT DEFAULT 'None')''')
-
         
+        # Add the banned users table for the IP blocking feature
+        conn.execute('''CREATE TABLE IF NOT EXISTS banned_users (identifier TEXT PRIMARY KEY)''')
+
+        # ---> DATABASE MIGRATION FIX <---
+        # Safely checks if contact_number exists in the old tickets table, and adds it if missing!
+        col_check = conn.execute("SELECT column_name FROM information_schema.columns WHERE table_name='tickets' AND column_name='contact_number'").fetchone()
+        if not col_check:
+            conn.execute("ALTER TABLE tickets ADD COLUMN contact_number TEXT DEFAULT ''")
 
         inv_check = conn.execute("SELECT COUNT(*) as count FROM inventory").fetchone()['count']
         if inv_check == 0:
