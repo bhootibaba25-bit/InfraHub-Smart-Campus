@@ -168,6 +168,9 @@ def init_db():
         if not col_check:
             conn.execute("ALTER TABLE tickets ADD COLUMN contact_number TEXT DEFAULT ''")
 
+
+
+
         inv_check = conn.execute("SELECT COUNT(*) as count FROM inventory").fetchone()['count']
         if inv_check == 0:
             seed_items = [
@@ -632,14 +635,21 @@ def create_ticket():
     client_ip = request.remote_addr 
     conn = get_db_connection()
     try:
-        # ---> FIX: Bulletproof Security Check <---
+        # FIX 1: Force Render to create the missing tables and columns on the fly
+        conn.execute('''CREATE TABLE IF NOT EXISTS banned_users (identifier TEXT PRIMARY KEY)''')
+        col_check = conn.execute("SELECT column_name FROM information_schema.columns WHERE table_name='tickets' AND column_name='contact_number'").fetchone()
+        if not col_check:
+            conn.execute("ALTER TABLE tickets ADD COLUMN contact_number TEXT DEFAULT ''")
+
+        # FIX 2: Safely check for banned users without crashing the system
+        is_banned = False
         try:
-            is_banned = conn.execute("SELECT * FROM banned_users WHERE identifier = %s OR identifier = %s", (client_ip, data['user_name'])).fetchone()
-            if is_banned:
-                return jsonify({"status": "error", "message": "Security Alert: This device/account has been banned."}), 403
-        except Exception as e:
-            print("Skipping ban check, table missing: ", e)
-            # Failsafe: Continue if the table somehow didn't generate
+            is_banned = conn.execute("SELECT * FROM banned_users WHERE identifier = %s OR identifier = %s", (client_ip, data.get('user_name', ''))).fetchone()
+        except Exception as db_err:
+            print("Skipping ban check: ", db_err)
+            
+        if is_banned:
+            return jsonify({"status": "error", "message": "Security Alert: This device/account has been banned."}), 403
 
         bldg = data.get('building')
         loc = data.get('location')
@@ -665,12 +675,15 @@ def create_ticket():
         else:
             ai_decision['status'] = "Pending"
 
-        ticket_id = data['ticket_id']
+        # FIX 3: Bulletproof ID extraction and Contact Number extraction
+        ticket_id = data.get('ticket_id', 'REQ-' + str(random.randint(1000, 9999)))
+        contact_num = data.get('contact_number', '')
+
         conn.execute('''INSERT INTO tickets (ticket_id, user_name, contact_number, role, department, building, location, issue, photo_attached, priority, status, ai_analysis) 
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''', 
-            (ticket_id, data['user_name'], data.get('contact_number', ''), data['role'], ai_decision['department'], bldg, loc, issue, photo, ai_decision['priority'], ai_decision['status'], ai_decision['ai_analysis']))
+            (ticket_id, data.get('user_name', 'Campus User'), contact_num, data.get('role', 'User'), ai_decision['department'], bldg, loc, issue, photo, ai_decision['priority'], ai_decision['status'], ai_decision['ai_analysis']))
         
-        log_audit(data['user_name'], 'TICKET_CREATED_IP', f"{ticket_id} from {client_ip}", db_conn=conn)
+        log_audit(data.get('user_name', 'Campus User'), 'TICKET_CREATED_IP', f"{ticket_id} from {client_ip}", db_conn=conn)
         
         if ai_decision['status'] != "Paused - Exam Week":
             tech = tool_get_available_technician(ai_decision['department'], bldg, db_conn=conn)
@@ -681,7 +694,7 @@ def create_ticket():
 
         return jsonify({"status": "success"}), 201
     except Exception as e: 
-        print(f"Ticket Creation Fatal Error: {e}")
+        print(f"FATAL TICKET ERROR: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
