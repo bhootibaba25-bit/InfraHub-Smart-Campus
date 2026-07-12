@@ -535,6 +535,39 @@
             </div>
         </div>
         <script>
+        // --- FEATURE: SMART CATEGORY AUTO-SELECT (Live Prediction) ---
+document.addEventListener('input', function(e) {
+    if (e.target && e.target.id === 'req-issue') {
+        const text = e.target.value.toLowerCase();
+        let prediction = "";
+        if (text.includes('wi-fi') || text.includes('internet') || text.includes('network')) prediction = "IT & Network Services";
+        else if (text.includes('ac ') || text.includes('cooling') || text.includes('vent')) prediction = "Air Conditioning & Ventilation Services";
+        else if (text.includes('leak') || text.includes('water') || text.includes('pipe')) prediction = "Plumbing Maintenance";
+        else if (text.includes('light') || text.includes('power') || text.includes('spark')) prediction = "Electrical Maintenance";
+        
+        const tipBox = document.getElementById('ai-tip-box');
+        const tipText = document.getElementById('ai-tip-text');
+        if (prediction) {
+            tipBox.classList.remove('hidden');
+            tipText.innerHTML = `<i class="fa-solid fa-bolt"></i> <b>AI Auto-Select:</b> This will be routed to <b>${prediction}</b>.`;
+        }
+    }
+});
+
+// --- FEATURE: ADMIN VOICE COMMANDS ---
+function startAdminVoiceCommand() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    document.getElementById('ticket-search-bar').placeholder = "Listening for command (e.g., 'Show urgent tickets')...";
+    
+    recognition.onresult = function(event) {
+        const transcript = event.results[0][0].transcript.toLowerCase();
+        document.getElementById('ticket-search-bar').value = transcript;
+        filterTickets(); // Auto-filters the table based on voice!
+        document.getElementById('ticket-search-bar').placeholder = "Search across requests...";
+    };
+    recognition.start();
+}
             
         // ==========================================
         // TOP LEVEL CONSTANTS AND GLOBALS
@@ -730,9 +763,12 @@
                         <h3 style="color: white; margin: 0;">Master Task Tracker</h3>
                         <button type="button" class="primary-btn" onclick="exportTicketsToCSV()" style="width: auto; padding: 10px 20px; background: #e08e45; font-size: 0.9rem;"><i class="fa-solid fa-file-csv"></i> Export Data</button>
                     </div>
-                    <div class="input-group" style="margin-bottom: 20px;">
-                        <i class="fa-solid fa-magnifying-glass input-icon" style="color: rgba(255,255,255,0.6);"></i>
-                        <input type="text" id="ticket-search-bar" placeholder="Search across requests..." onkeyup="filterTickets()" style="background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; padding-left: 45px;">
+                    <div class="input-group" style="margin-bottom: 20px; display: flex; gap: 10px;">
+                        <div style="position: relative; flex: 1;">
+                            <i class="fa-solid fa-magnifying-glass input-icon" style="color: rgba(255,255,255,0.6);"></i>
+                            <input type="text" id="ticket-search-bar" placeholder="Search across requests..." onkeyup="filterTickets()" style="width: 100%; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; padding-left: 45px; border-radius: 12px; padding-top: 16px; padding-bottom: 16px; outline: none;">
+                        </div>
+                        <button type="button" onclick="startAdminVoiceCommand()" class="primary-btn" style="width: auto; background: #a855f7; padding: 0 20px;"><i class="fa-solid fa-microphone"></i> Voice Search</button>
                     </div>
                     <div style="display: flex; gap: 10px; margin-bottom: 20px;">
                         <button type="button" class="primary-btn tab-btn" id="tab-Queue" onclick="renderAdminTickets('Queue')" style="background: #38bdf8; width: 33%;">Queue (Pending)</button>
@@ -1036,18 +1072,22 @@
             });
 
             // ↓↓↓ REPLACED ROSTER ROWS EXACTLY HERE ↓↓↓
-            let rows = filtered.map(tech => `
+            let rows = filtered.map(tech => {
+                // Workload Fatigue Indicator (Flags if worked > 40 hours / 2400 mins)
+                let fatigueWarning = tech.current_active_hours > 2400 ? `<span class="pulse-badge" style="margin-top: 5px;"><i class="fa-solid fa-battery-empty"></i> FATIGUE WARNING</span>` : '';
+                
+                return `
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
-                    <td style="padding: 15px;">${tech.is_on_shift ? '<span style="color: #10b981;"><i class="fa-solid fa-circle"></i> On Shift</span>' : '<span style="color: #fca5a5;"><i class="fa-solid fa-circle"></i> Off Duty</span>'}</td>
+                    <td style="padding: 15px;">${tech.is_on_shift ? '<span style="color: #10b981;"><i class="fa-solid fa-circle"></i> On Shift</span>' : '<span style="color: #fca5a5;"><i class="fa-solid fa-circle"></i> Off Duty</span>'}<br>${fatigueWarning}</td>
                     <td style="padding: 15px;"><strong style="font-size: 1.1rem;">${safeText(tech.name || 'Unknown')}</strong></td>
                     <td style="padding: 15px;">${safeText(tech.department || 'N/A')}</td>
                     <td style="padding: 15px;"><span class="badge" style="background: rgba(56, 189, 248, 0.2); border: 1px solid #38bdf8; color: #38bdf8;">Minutes Worked: ${tech.current_active_hours || 0} / ${(tech.max_shift_hours || 8) * 60} Mins</span></td>
                     <td style="padding: 15px; display: flex; gap: 8px;">
-                    <button type="button" onclick="viewTechTasks('${safeText(tech.name || '').replace(/'/g, "\\'")}')" style="background: rgba(56,189,248,0.2); border: 1px solid #38bdf8; color: #38bdf8; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;"><i class="fa-solid fa-list-check"></i> Tasks</button>
-                    <button type="button" onclick="window.location.href='/api/technicians/timesheet/${encodeURIComponent(tech.name || '')}'" style="background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #10b981; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;"><i class="fa-solid fa-file-csv"></i> Timesheet</button>
-                   </td> 
-                   </tr> 
-            `).join('');
+                        <button type="button" onclick="viewTechTasks('${safeText(tech.name || '').replace(/'/g, "\\'")}')" style="background: rgba(56,189,248,0.2); border: 1px solid #38bdf8; color: #38bdf8; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;"><i class="fa-solid fa-list-check"></i> Tasks</button>
+                        <button type="button" onclick="window.location.href='/api/technicians/timesheet/${encodeURIComponent(tech.name || '')}'" style="background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #10b981; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;"><i class="fa-solid fa-file-csv"></i> Timesheet</button>
+                    </td> 
+                </tr> 
+            `}).join('');
             // ↑↑↑ END OF REPLACED ROSTER ROWS ↑↑↑
             if(filtered.length === 0) rows = `<tr><td colspan="5" style="padding:15px; text-align:center;">No technicians match your search.</td></tr>`;
 
@@ -1422,11 +1462,12 @@
                             <p class="ticket-meta"><i class="fa-solid fa-location-dot"></i> ${t.building} (${t.location}) &nbsp;|&nbsp; <i class="fa-regular fa-clock"></i> ${timeAgo(t.created_at)}</p>
                             
                             <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-    <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
-    <button onclick="summarizeThread('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
-    <button onclick="draftUpdate('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Formal Update</button>
-<button onclick="deleteRequest('${t.ticket_id}', '${filterType}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid #ef4444; width:auto; margin-left:5px;"><i class="fa-solid fa-trash-can"></i> Cancel Ticket</button>    <button onclick="deleteRequest('${t.ticket_id}', '${filterType}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid #ef4444; width:auto; margin-left:5px;"><i class="fa-solid fa-trash-can"></i> Cancel Ticket</button>
-
+                                <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
+                                <a href="tel:${t.contact_number}" class="primary-btn" style="width: auto; padding: 8px 15px; background: #10b981; text-decoration: none; color: white; font-size: 0.85rem; border-radius: 12px;"><i class="fa-solid fa-phone"></i> Call User</a>
+                                <button onclick="runPreFlight('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#a855f7; width:auto;"><i class="fa-solid fa-boxes"></i> AI Pre-Flight</button>
+                                <button onclick="draftUpdate('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Update User</button>
+                                <button onclick="summarizeThread('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
+                                
                                 ${t.status === 'Pending' || t.status === 'Assigned' ? `<button onclick="acceptTicket('${t.ticket_id}', '${t.priority}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#10b981; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-check"></i> Accept Job</button>` : ''}
                                 ${t.status === 'Pending' || t.status === 'Assigned' || t.status === 'In Progress' ? `<button onclick="transferTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#f59e0b; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-right-left"></i> Transfer Dept</button>` : ''}
                                 ${t.status === 'Pending' || t.status === 'Assigned' ? `<button onclick="openDeclineModal('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:transparent; color:#fca5a5; border:1px solid #fca5a5; width:auto; margin-left:5px;"><i class="fa-solid fa-ban"></i> Decline</button>` : ''}
@@ -1604,10 +1645,11 @@
                             
                             <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
                                 <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
+                                <button onclick="viewTTR('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(168, 85, 247, 0.2); color:#c084fc; border: 1px solid #a855f7; width:auto;"><i class="fa-solid fa-stopwatch"></i> TTR Playback</button>
                                 <button onclick="summarizeThread('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(255,255,255,0.1); width:auto;"><i class="fa-solid fa-sparkles"></i> TL;DR</button>
                                 <button onclick="draftUpdate('${t.ticket_id}', this)" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid #38bdf8; width:auto;"><i class="fa-solid fa-envelope"></i> Formal Update</button>
                                 <button onclick="transferTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#f59e0b; width:auto; border:none; margin-left:5px;"><i class="fa-solid fa-right-left"></i> Force Transfer</button>
-                                <button onclick="deleteRequest('${t.ticket_id}', '${filterType}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid #ef4444; width:auto; margin-left:5px;"><i class="fa-solid fa-trash-can"></i> Cancel Ticket</button>
+                                ${t.status === 'Cancelled' ? `<button onclick="restoreTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#fbbf24; color:#000; width:auto;"><i class="fa-solid fa-rotate-left"></i> Undo Delete</button>` : `<button onclick="deleteRequest('${t.ticket_id}', '${filterType}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid #ef4444; width:auto; margin-left:5px;"><i class="fa-solid fa-trash-can"></i> Cancel Ticket</button>`}
                             </div>
                     `;
 
@@ -1669,7 +1711,7 @@
                         </div>
                         <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
                             <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
-                            ${(t.status === 'Pending' || t.status === 'Submitted' || t.status === 'Assigned' || t.status === 'Escalated') ? `<button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(248, 113, 113, 0.2); color: #fca5a5; font-size: 0.85rem;" onclick="deleteRequest('${t.ticket_id}')"><i class="fa-solid fa-trash"></i> Withdraw</button>` : ''}
+                            ${(t.status === 'Pending' || t.status === 'Submitted' || t.status === 'Assigned' || t.status === 'Escalated') ? `<button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(248, 113, 113, 0.2); color: #fca5a5; font-size: 0.85rem;" onclick="deleteRequest('${t.ticket_id}')"><i class="fa-solid fa-trash"></i> Withdraw</button> <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(16, 185, 129, 0.2); color: #10b981; font-size: 0.85rem; margin-left: 5px;" onclick="selfResolveTicket('${t.ticket_id}')"><i class="fa-solid fa-check"></i> I Fixed It Myself (Cancel)</button>` : ''}
                         </div>
                     </div>`;
                 });
