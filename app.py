@@ -255,8 +255,7 @@ def tool_get_available_technician(department, ticket_building=None, db_conn=None
                    (t.current_building = %s) as is_close,
                    (SELECT COUNT(*) FROM tickets WHERE assigned_technician = t.name AND status IN ('Assigned', 'In Progress', 'Pending')) as total_tasks
             FROM technicians t
-            WHERE (t.department = %s OR t.department LIKE %s) AND t.is_on_shift = 1 AND t.on_break = 0
-            ORDER BY is_close DESC, total_tasks ASC
+            WHERE (t.department = %s OR t.department LIKE %s OR t.department = 'All') AND t.is_on_shift = 1 AND t.on_break = 0
         '''
         available_techs = conn.execute(query, (ticket_building, department, f'%{department}%')).fetchall()
         
@@ -705,11 +704,13 @@ def get_tickets():
     try:
         role = request.args.get('role')
         user_name = request.args.get('name')
-        
-        if role in ['Portal Admin', 'Master Technician']:
+
+        if role == 'Portal Admin':
             tickets = conn.execute("SELECT * FROM tickets WHERE status != 'Cancelled' ORDER BY created_at DESC").fetchall()
-        elif role == 'Campus Technician':
+        elif role in ['Campus Technician', 'Master Technician']:
             tickets = conn.execute("SELECT * FROM tickets WHERE assigned_technician = %s AND status != 'Cancelled' ORDER BY created_at DESC", (user_name,)).fetchall()
+        
+        
         else: 
             tickets = conn.execute("SELECT * FROM tickets WHERE user_name = %s AND status != 'Cancelled' ORDER BY created_at DESC", (user_name,)).fetchall()
             

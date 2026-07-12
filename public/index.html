@@ -1708,8 +1708,17 @@ function startAdminVoiceCommand() {
                                 <div class="tracker-step ${c3}"><div class="tracker-dot"><i class="fa-solid fa-screwdriver-wrench"></i></div><span class="tracker-label">In Progress</span></div>
                                 <div class="tracker-step ${c4}"><div class="tracker-dot"><i class="fa-solid fa-flag-checkered"></i></div><span class="tracker-label">Resolved</span></div>
                             </div>
-                        </div>
+                      </div>
                         
+                        <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button type="button" class="primary-btn" style="width: auto; padding: 8px 15px; background: rgba(255,255,255,0.1); font-size: 0.85rem;" onclick="showTicketDetails('${t.ticket_id}')"><i class="fa-solid fa-circle-info"></i> More Details</button>
+                            
+                            ${t.status !== 'Resolved' && t.status !== 'Closed' && t.status !== 'Cancelled' ? `
+                                <button onclick="selfResolveTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#10b981; width:auto; border:none;"><i class="fa-solid fa-check"></i> Self-Resolve</button>
+                                <button onclick="deleteRequest('${t.ticket_id}', 'Active')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid #ef4444; width:auto;"><i class="fa-solid fa-trash-can"></i> Withdraw</button>
+                            ` : ''}
+                        </div>
+
                     </div>`;
                 });
             }
@@ -1958,6 +1967,21 @@ function startAdminVoiceCommand() {
                 } catch (error) { alert("❌ Server Error on Delete."); }
             }
         }
+        window.selfResolveTicket = async function(ticketId) {
+    if(!confirm("Did you resolve this issue yourself? This will close the ticket.")) return;
+    try {
+        const res = await fetch(`/api/tickets/${ticketId}/self-resolve`, { method: 'PUT' });
+        const data = await res.json();
+        if(data.status === 'success') {
+            alert("✅ Ticket marked as Self-Resolved!");
+            // Remove from local memory and refresh user view
+            globalTicketsData.find(t => t.ticket_id === ticketId).status = 'Resolved';
+            renderUserTickets(); 
+        } else {
+            alert("❌ Failed to resolve.");
+        }
+    } catch(e) { alert("Network Error"); }
+};
         // ↓↓↓ UPDATED ACCEPT TICKET LOGIC ↓↓↓
         window.acceptTicket = async function(ticketId, priority) {
             if (priority === 'Urgent') alert(`⚠️ SLA WARNING: URGENT ticket accepted.`);
@@ -2059,6 +2083,27 @@ function startAdminVoiceCommand() {
         window.showTicketDetails = function(ticketId) {
         const t = window.ticketCache[ticketId];
         if(!t) return;
+
+        window.viewTTR = function(ticketId) {
+    const t = window.ticketCache[ticketId];
+    if (!t) return;
+    
+    let created = t.created_at || 'Unknown';
+    let updated = t.last_updated_at || 'Unknown';
+    let timeTaken = t.time_taken_mins || 0;
+    
+    showModal(`TTR Playback: ${ticketId}`, `
+        <div style="background: rgba(0,0,0,0.2); padding: 20px; border-radius: 8px;">
+            <h3 style="color: #38bdf8; margin-bottom: 15px;"><i class="fa-solid fa-stopwatch"></i> Total Time to Resolution: ${timeTaken} Mins</h3>
+            <ul style="color: #cbd5e1; list-style-type: none; padding: 0; font-size: 0.95rem; line-height: 2;">
+                <li><i class="fa-solid fa-play" style="color: #10b981; width: 25px;"></i> <b>Created At:</b> ${created}</li>
+                <li><i class="fa-solid fa-flag-checkered" style="color: #a855f7; width: 25px;"></i> <b>Last Updated:</b> ${updated}</li>
+                <li><i class="fa-solid fa-user-gear" style="color: #fbbf24; width: 25px;"></i> <b>Handled By:</b> ${t.assigned_technician || 'Unassigned'}</li>
+                <li><i class="fa-solid fa-signal" style="color: #38bdf8; width: 25px;"></i> <b>Final Status:</b> ${t.status}</li>
+            </ul>
+        </div>
+    `);
+};
 
         let createdDate = t.created_at ? new Date(String(t.created_at).replace(' ', 'T')) : new Date();
         if (isNaN(createdDate)) createdDate = new Date();
