@@ -623,13 +623,21 @@ def ai_quick_fix():
 @app.route('/api/tickets', methods=['POST'])
 def create_ticket():
     data = request.json
+    client_ip = request.remote_addr # IP Logging Feature
     conn = get_db_connection()
     try:
+        # Banned User Check
+        conn.execute("CREATE TABLE IF NOT EXISTS banned_users (identifier TEXT PRIMARY KEY)")
+        is_banned = conn.execute("SELECT * FROM banned_users WHERE identifier = %s OR identifier = %s", (client_ip, data['user_name'])).fetchone()
+        if is_banned:
+            return jsonify({"status": "error", "message": "Security Alert: This device/account has been banned."}), 403
+
         bldg = data.get('building')
         loc = data.get('location')
         photo = data.get('photo_attached', 'None')
+        issue = data.get('issue')
 
-        ai_decision = classify_ticket_with_ai(data['issue'])
+        ai_decision = classify_ticket_with_ai(issue)
         ticket_dept = ai_decision['department']
 
         duplicate_check = conn.execute('''
@@ -638,26 +646,32 @@ def create_ticket():
         ''', (bldg, loc, ticket_dept)).fetchone()
 
         if duplicate_check:
-            return jsonify({
-                "status": "error",
-                "message": f"Duplicate Prevented: Our {ticket_dept} team is already working on an active issue in {bldg} - {loc}!"
-            }), 400
-        
-        conn.execute('INSERT INTO tickets (ticket_id, user_name, role, department, building, location, issue, photo_attached, priority, ai_analysis) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)', 
-            (data['ticket_id'], data['user_name'], data['role'], ai_decision['department'], data['building'], data['location'], data['issue'], photo, ai_decision['priority'], ai_decision['ai_analysis']))
-        
-        add_notification(data['user_name'], None, f"Request {data['ticket_id']} successfully sent. AI is analyzing your issue.", db_conn=conn)
-        
-        tech = tool_get_available_technician(ai_decision['department'], data['building'], db_conn=conn)
-        if tech['status'] == 'success':
-            tool_assign_ticket(data['ticket_id'], tech['technician_name'], db_conn=conn)
-            add_notification(tech['technician_name'], None, f"AI DISPATCH: {data['ticket_id']} routed to your tracking portal.", is_urgent=1 if ai_decision['priority'] == 'Urgent' else 0, db_conn=conn)
-            add_notification(data['user_name'], None, f"Update: Ticket {data['ticket_id']} routed to Technician {tech['technician_name']}.", db_conn=conn)
+            return jsonify({"status": "error", "message": f"Duplicate Prevented: Our {ticket_dept} team is already working on an active issue in {bldg} - {loc}!"}), 400
+
+        # Exam Week Maintenance Pauser
+        is_exam_week = True 
+        is_noisy = "drill" in issue.lower() or "hammer" in issue.lower()
+        if is_exam_week and is_noisy and ai_decision['priority'] != 'Urgent':
+            ai_decision['status'] = "Paused - Exam Week"
+            ai_decision['ai_analysis'] += " [AUTOMATICALLY PAUSED: Noisy maintenance prohibited during Mid-Terms.]"
         else:
-            add_notification(None, 'Portal Admin', f"WARNING: {data['ticket_id']} could not be assigned. No techs in {ai_decision['department']}!", is_urgent=1, db_conn=conn)
-            
-        return jsonify({"status": "success"}), 201
+            ai_decision['status'] = "Pending"
+
+        ticket_id = data['ticket_id']
+        conn.execute('''INSERT INTO tickets (ticket_id, user_name, contact_number, role, department, building, location, issue, photo_attached, priority, status, ai_analysis) 
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''', 
+            (ticket_id, data['user_name'], data.get('contact_number', ''), data['role'], ai_decision['department'], bldg, loc, issue, photo, ai_decision['priority'], ai_decision['status'], ai_decision['ai_analysis']))
         
+        log_audit(data['user_name'], 'TICKET_CREATED_IP', f"{ticket_id} from {client_ip}", db_conn=conn)
+        
+        if ai_decision['status'] != "Paused - Exam Week":
+            tech = tool_get_available_technician(ai_decision['department'], bldg, db_conn=conn)
+            if tech['status'] == 'success':
+                tool_assign_ticket(ticket_id, tech['technician_name'], db_conn=conn)
+            else:
+                add_notification(None, 'Portal Admin', f"WARNING: {ticket_id} could not be assigned. No techs in {ai_decision['department']}!", is_urgent=1, db_conn=conn)
+
+        return jsonify({"status": "success"}), 201
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
@@ -1528,9 +1542,17 @@ def handle_leaves():
     try:
         if request.method == 'POST':
             data = request.json
+            tech_name = data['tech_name']
+            start_date = data['start_date']
+            
+            tech_dept = conn.execute("SELECT department FROM technicians WHERE name = %s", (tech_name,)).fetchone()['department']
+            conflicts = conn.execute("SELECT COUNT(*) as c FROM leave_requests r JOIN technicians t ON r.tech_name = t.name WHERE t.department = %s AND r.start_date = %s AND r.status != 'Denied'", (tech_dept, start_date)).fetchone()['c']
+            
+            if conflicts >= 2:
+                add_notification(None, 'Portal Admin', f"⚠️ LEAVE CONFLICT: {tech_name} requested leave on {start_date}, but {conflicts} other techs in {tech_dept} are already off!", is_urgent=1, db_conn=conn)
+                
             conn.execute("INSERT INTO leave_requests (tech_name, start_date, end_date, reason) VALUES (%s, %s, %s, %s)", 
-                         (data['tech_name'], data['start_date'], data['end_date'], data['reason']))
-            add_notification(None, 'Portal Admin', f"LEAVE REQUEST: {data['tech_name']} requested time off from {data['start_date']} to {data['end_date']}.", db_conn=conn)
+                         (tech_name, start_date, data['end_date'], data['reason']))
             return jsonify({"status": "success"})
         else:
             tech_name = request.args.get('name')
@@ -1767,6 +1789,57 @@ def report_hazard():
             tool_assign_ticket(ticket_id, tech['technician_name'], db_conn=conn)
         
         return jsonify({"status": "success", "ticket": resp})
+    finally: conn.close()
+
+@app.route('/api/inventory/auto-po', methods=['POST'])
+def trigger_auto_po():
+    conn = get_db_connection()
+    try:
+        low_stock = conn.execute("SELECT item_name, stock_level, reorder_threshold FROM inventory WHERE stock_level <= reorder_threshold").fetchall()
+        for item in low_stock:
+            subject = f"URGENT PURCHASE ORDER: InfraHub Restock - {item['item_name']}"
+            body = f"To Supplier,\n\nPlease process an immediate Purchase Order for 50 units of {item['item_name']}. Our campus inventory has dropped to critical levels ({item['stock_level']} remaining).\n\nAuthorized by AI Procurement System."
+            log_audit('AI System', 'AUTO_PO_SENT', item['item_name'], db_conn=conn)
+        return jsonify({"status": "success", "message": "Auto-POs drafted and logged."})
+    finally: conn.close()
+
+@app.route('/api/export/board-report', methods=['GET'])
+def export_board_report():
+    conn = get_db_connection()
+    try:
+        total_tickets = conn.execute("SELECT COUNT(*) as c FROM tickets").fetchone()['c']
+        avg_ttr = conn.execute("SELECT AVG(time_taken_mins) as a FROM tickets WHERE status = 'Resolved'").fetchone()['a'] or 0
+        html_report = f"""
+        <html><body>
+        <h1>University Infrastructure Monthly Board Report</h1>
+        <hr>
+        <h3>Executive Summary</h3>
+        <p>Total Maintenance Tickets Logged: <b>{total_tickets}</b></p>
+        <p>Average Time-To-Resolution (TTR): <b>{round(avg_ttr, 2)} Minutes</b></p>
+        <p>System Status: <span style="color:green;">OPTIMAL</span></p>
+        </body></html>
+        """
+        return Response(html_report, mimetype="text/html", headers={"Content-Disposition": "attachment;filename=Board_Report.html"})
+    finally: conn.close()
+
+@app.route('/api/tickets/<ticket_id>/restore', methods=['PUT'])
+def restore_ticket(ticket_id):
+    conn = get_db_connection()
+    try:
+        conn.execute("UPDATE tickets SET status = 'Pending' WHERE ticket_id = %s", (ticket_id,))
+        log_audit(request.args.get('name', 'Admin'), 'RESTORED_TICKET', ticket_id, db_conn=conn)
+        return jsonify({"status": "success"})
+    finally: conn.close()
+
+@app.route('/api/tickets/<ticket_id>/self-resolve', methods=['PUT'])
+def self_resolve_ticket(ticket_id):
+    conn = get_db_connection()
+    try:
+        ticket = conn.execute("SELECT assigned_technician FROM tickets WHERE ticket_id = %s", (ticket_id,)).fetchone()
+        conn.execute("UPDATE tickets SET status = 'Resolved', resolution_photo = 'Self-Resolved by User' WHERE ticket_id = %s", (ticket_id,))
+        if ticket and ticket['assigned_technician'] != 'Unassigned':
+            add_notification(ticket['assigned_technician'], None, f"CANCELLED: User self-resolved ticket {ticket_id}. You do not need to attend.", db_conn=conn)
+        return jsonify({"status": "success"})
     finally: conn.close()
 
 
