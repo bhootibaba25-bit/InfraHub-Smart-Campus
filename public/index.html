@@ -534,7 +534,74 @@
                 </div>
             </div>
         </div>
+        <!-- Beautiful Shift Trade Modal -->
+        <div id="trade-modal" class="hidden" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); z-index: 2500; display: flex; justify-content: center; align-items: center;">
+            <div style="background: #1b333e; border: 1px solid #38bdf8; border-radius: 20px; padding: 40px; width: 450px; max-width: 90%; color: white; box-shadow: 0 20px 60px rgba(0,0,0,0.6);">
+                <h2 style="color: #38bdf8; margin-bottom: 20px; font-size: 1.5rem;"><i class="fa-solid fa-calendar-day"></i> Request Shift Trade</h2>
+                <p style="margin-bottom: 20px; color: #cbd5e1; font-size: 0.9rem;">Select the date you need coverage for. This will be posted to your department's board.</p>
+                
+                <input type="date" id="trade-date-input" style="width: 100%; padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: white; font-size: 1rem; margin-bottom: 25px; outline: none; color-scheme: dark;">
+                
+                <div style="display: flex; gap: 15px;">
+                    <button type="button" onclick="document.getElementById('trade-modal').classList.add('hidden')" style="flex: 1; padding: 12px; background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 12px; cursor: pointer; font-weight: bold;">Cancel</button>
+                    <button type="button" onclick="submitShiftTrade()" style="flex: 1; padding: 12px; background: #38bdf8; border: none; color: #0f172a; border-radius: 12px; cursor: pointer; font-weight: bold;">Post to Board</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Beautiful Leave Request Modal -->
+        <div id="leave-modal" class="hidden" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); z-index: 2500; display: flex; justify-content: center; align-items: center;">
+            <div style="background: #1b333e; border: 1px solid #e08e45; border-radius: 20px; padding: 40px; width: 450px; max-width: 90%; color: white; box-shadow: 0 20px 60px rgba(0,0,0,0.6);">
+                <h2 style="color: #e08e45; margin-bottom: 20px; font-size: 1.5rem;"><i class="fa-solid fa-plane-departure"></i> Request Time Off</h2>
+                
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <div style="flex: 1;">
+                        <label style="font-size: 0.8rem; color: #9ca3af; margin-bottom: 5px; display: block;">Start Date</label>
+                        <input type="date" id="leave-start-input" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: white; outline: none; color-scheme: dark;">
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="font-size: 0.8rem; color: #9ca3af; margin-bottom: 5px; display: block;">End Date</label>
+                        <input type="date" id="leave-end-input" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: white; outline: none; color-scheme: dark;">
+                    </div>
+                </div>
+                
+                <label style="font-size: 0.8rem; color: #9ca3af; margin-bottom: 5px; display: block;">Reason</label>
+                <textarea id="leave-reason-input" rows="3" placeholder="e.g., Sick leave, Vacation..." style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: white; margin-bottom: 25px; outline: none; resize: none;"></textarea>
+                
+                <div style="display: flex; gap: 15px;">
+                    <button type="button" onclick="document.getElementById('leave-modal').classList.add('hidden')" style="flex: 1; padding: 12px; background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 12px; cursor: pointer; font-weight: bold;">Cancel</button>
+                    <button type="button" onclick="submitLeaveRequest()" style="flex: 1; padding: 12px; background: #e08e45; border: none; color: white; border-radius: 12px; cursor: pointer; font-weight: bold;">Submit to HR</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Feedback & QA Modal -->
+        <div id="feedback-modal" class="hidden" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); z-index: 2500; display: flex; justify-content: center; align-items: center;">
+            <div style="background: #1b333e; border: 1px solid #fbbf24; border-radius: 20px; padding: 40px; width: 450px; max-width: 90%; color: white; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.6);">
+                <h2 style="color: #fbbf24; margin-bottom: 10px; font-size: 1.5rem;"><i class="fa-solid fa-star"></i> Rate the Service</h2>
+                <p style="color: #cbd5e1; font-size: 0.9rem; margin-bottom: 20px;">Your technician marked this issue as Resolved. How did they do?</p>
+                
+                <div style="font-size: 2rem; color: #fbbf24; margin-bottom: 20px; cursor: pointer;" id="star-rating-container">
+                    <i class="fa-solid fa-star star-btn" data-val="1"></i>
+                    <i class="fa-solid fa-star star-btn" data-val="2"></i>
+                    <i class="fa-solid fa-star star-btn" data-val="3"></i>
+                    <i class="fa-solid fa-star star-btn" data-val="4"></i>
+                    <i class="fa-solid fa-star star-btn" data-val="5"></i>
+                </div>
+                <input type="hidden" id="feedback-score" value="5">
+                
+                <textarea id="feedback-text-input" rows="3" placeholder="Leave a comment for the technician..." style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: white; margin-bottom: 25px; outline: none; resize: none;"></textarea>
+                
+                <div style="display: flex; gap: 15px;">
+                    <button type="button" onclick="document.getElementById('feedback-modal').classList.add('hidden')" style="flex: 1; padding: 12px; background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 12px; cursor: pointer; font-weight: bold;">Skip</button>
+                    <button type="button" onclick="submitUserFeedback()" style="flex: 1; padding: 12px; background: #fbbf24; border: none; color: #0f172a; border-radius: 12px; cursor: pointer; font-weight: bold;">Submit Rating</button>
+                </div>
+            </div>
+        </div>
         <script>
+
+        
+        
         // --- FEATURE: SMART CATEGORY AUTO-SELECT (Live Prediction) ---
 document.addEventListener('input', function(e) {
     if (e.target && e.target.id === 'req-issue') {
@@ -1733,6 +1800,10 @@ function startAdminVoiceCommand() {
                             ${t.status !== 'Resolved' && t.status !== 'Closed' && t.status !== 'Cancelled' ? `
                                 <button onclick="selfResolveTicket('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#10b981; width:auto; border:none;"><i class="fa-solid fa-check"></i> Self-Resolve</button>
                                 <button onclick="deleteRequest('${t.ticket_id}', 'Active')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid #ef4444; width:auto;"><i class="fa-solid fa-trash-can"></i> Withdraw</button>
+                            ` : ''}
+                            
+                            ${t.status === 'Resolved' ? `
+                                <button onclick="openFeedbackModal('${t.ticket_id}')" class="primary-btn" style="padding:8px 15px; font-size:0.85rem; background:#fbbf24; color:#0f172a; width:auto; border:none; box-shadow: 0 0 15px rgba(251, 191, 36, 0.4);"><i class="fa-solid fa-star"></i> Rate Service</button>
                             ` : ''}
                         </div>
 
@@ -3070,26 +3141,89 @@ function startAdminVoiceCommand() {
             } catch(e) {}
         };
 
-        window.requestLeave = async function() {
-            const start = prompt("Start Date (YYYY-MM-DD):");
-            if(!start) return;
-            const end = prompt("End Date (YYYY-MM-DD):");
-            const reason = prompt("Reason (Sick, Vacation, etc.):");
-            try {
-                await fetch('/api/technicians/leave-requests', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tech_name: sessionStorage.getItem('hub_name'), start_date: start, end_date: end, reason: reason}) });
-                loadModule(technicianModules[1]); 
-            } catch(e) {}
+        // ==========================================
+        // HR MODULE CONTROLLERS (BEAUTIFUL UI UPDATE)
+        // ==========================================
+        window.requestLeave = function() {
+            document.getElementById('leave-modal').classList.remove('hidden');
         };
 
-        window.postShiftTrade = async function(dept) {
-            const date = prompt("Which date do you need covered? (YYYY-MM-DD):");
-            if(!date) return;
+        window.submitLeaveRequest = async function() {
+            const start = document.getElementById('leave-start-input').value;
+            const end = document.getElementById('leave-end-input').value;
+            const reason = document.getElementById('leave-reason-input').value.trim();
+            
+            if(!start || !end || !reason) return alert("Please fill out all fields.");
+            
             try {
-                await fetch('/api/technicians/shift-trades', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({requester: sessionStorage.getItem('hub_name'), department: dept, target_date: date}) });
+                await fetch('/api/technicians/leave-requests', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tech_name: sessionStorage.getItem('hub_name'), start_date: start, end_date: end, reason: reason}) });
+                document.getElementById('leave-modal').classList.add('hidden');
                 loadModule(technicianModules[1]); 
-            } catch(e) {}
+            } catch(e) { alert("Error submitting leave."); }
         };
-        // ↑↑↑ END HR MODULE CONTROLLERS ↑↑↑
+
+        let currentTradeDept = '';
+        window.postShiftTrade = function(dept) {
+            currentTradeDept = dept;
+            document.getElementById('trade-modal').classList.remove('hidden');
+        };
+
+        window.submitShiftTrade = async function() {
+            const date = document.getElementById('trade-date-input').value;
+            if(!date) return alert("Please select a date.");
+            
+            try {
+                await fetch('/api/technicians/shift-trades', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({requester: sessionStorage.getItem('hub_name'), department: currentTradeDept, target_date: date}) });
+                document.getElementById('trade-modal').classList.add('hidden');
+                loadModule(technicianModules[1]); 
+            } catch(e) { alert("Error posting trade."); }
+        };
+
+        // ==========================================
+        // USER FEEDBACK CONTROLLERS
+        // ==========================================
+        let activeFeedbackTicketId = null;
+        
+        // Handle Star Clicking
+        document.querySelectorAll('.star-btn').forEach(star => {
+            star.onclick = function() {
+                const val = parseInt(this.getAttribute('data-val'));
+                document.getElementById('feedback-score').value = val;
+                document.querySelectorAll('.star-btn').forEach(s => {
+                    if (parseInt(s.getAttribute('data-val')) <= val) {
+                        s.classList.remove('fa-regular');
+                        s.classList.add('fa-solid');
+                    } else {
+                        s.classList.remove('fa-solid');
+                        s.classList.add('fa-regular');
+                    }
+                });
+            }
+        });
+
+        window.openFeedbackModal = function(ticketId) {
+            activeFeedbackTicketId = ticketId;
+            document.getElementById('feedback-modal').classList.remove('hidden');
+        };
+
+        window.submitUserFeedback = async function() {
+            if(!activeFeedbackTicketId) return;
+            const rating = document.getElementById('feedback-score').value;
+            const feedbackText = document.getElementById('feedback-text-input').value.trim() || 'No written feedback provided.';
+            
+            try {
+                // Call the existing QA endpoint in app.py
+                const res = await fetch(`/api/qa/${activeFeedbackTicketId}?answer=yes&rating=${rating}&feedback=${encodeURIComponent(feedbackText)}`);
+                if(res.ok) {
+                    alert("🎉 Thank you! Your feedback has been sent to the technician's live stream!");
+                    document.getElementById('feedback-modal').classList.add('hidden');
+                    
+                    // Update UI locally to show it's Closed
+                    globalTicketsData.find(t => t.ticket_id === activeFeedbackTicketId).status = 'Closed';
+                    renderUserTickets();
+                }
+            } catch(e) { alert("Network Error"); }
+        };
         // ↓↓↓ SAFETY & OPS CONTROLLERS ↓↓↓
         window.updateGPSLocation = async function() {
             const bldg = document.getElementById('geo-building-select').value;
