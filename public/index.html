@@ -1199,15 +1199,19 @@ function startAdminVoiceCommand() {
                     <td style="padding: 15px;"><strong style="font-size: 1.1rem;">${safeText(u.name || 'Unknown')}</strong></td>
                     <td style="padding: 15px;">${safeText(u.email || 'N/A')}</td>
                     <td style="padding: 15px;"><span class="badge" style="background: rgba(255,255,255,0.2);">${safeText(u.role || 'User')}</span></td>
+                    <td style="padding: 15px; display: flex; gap: 10px;">
+                        <button onclick="deleteSystemUser('${u.email}')" class="primary-btn" style="width: auto; padding: 6px 12px; background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid #ef4444; font-size: 0.8rem;"><i class="fa-solid fa-trash"></i> Delete</button>
+                        <button onclick="banSystemUser('${u.email}', '${safeText(u.name).replace(/'/g, "\\'")}')" class="primary-btn" style="width: auto; padding: 6px 12px; background: #ef4444; color: white; border: none; font-size: 0.8rem;"><i class="fa-solid fa-gavel"></i> Ban</button>
+                    </td>
                 </tr>
             `).join('');
-            if(filtered.length === 0) rows = `<tr><td colspan="3" style="padding:15px; text-align:center;">No users match your search.</td></tr>`;
+            if(filtered.length === 0) rows = `<tr><td colspan="4" style="padding:15px; text-align:center;">No users match your search.</td></tr>`;
 
             document.getElementById('user-directory-area').innerHTML = `
                 <div style="background: rgba(255, 255, 255, 0.1); border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.2);">
                     <table style="width: 100%; text-align: left; color: white; border-collapse: collapse;">
                         <tr style="background: rgba(0,0,0,0.3); font-size: 0.9rem;">
-                            <th style="padding: 15px;">User Info</th><th style="padding: 15px;">Email</th><th style="padding: 15px;">Role</th>
+                            <th style="padding: 15px;">User Info</th><th style="padding: 15px;">Email</th><th style="padding: 15px;">Role</th><th style="padding: 15px;">Actions</th>
                         </tr>
                         ${rows}
                     </table>
@@ -3271,7 +3275,10 @@ function startAdminVoiceCommand() {
                                     <strong style="color: white; font-size:1.05rem;">${safeText(u.name)}</strong><br>
                                     <span style="color: #38bdf8; font-size:0.85rem; font-weight:bold;">${u.role}</span> &nbsp;|&nbsp; <span style="color:#9ca3af; font-size:0.85rem;">${u.email}</span>
                                 </div>
-                                <button onclick="executeAdminUserApproval('${u.email}')" class="primary-btn" style="width: auto; padding: 8px 18px; background: #10b981; font-size:0.85rem;"><i class="fa-solid fa-user-plus"></i> Grant Access</button>
+                                <div style="display: flex; gap: 10px;">
+                                    <button onclick="executeAdminUserApproval('${u.email}')" class="primary-btn" style="width: auto; padding: 8px 15px; background: #10b981; font-size:0.85rem;"><i class="fa-solid fa-user-plus"></i> Grant</button>
+                                    <button onclick="executeAdminUserRejection('${u.email}')" class="primary-btn" style="width: auto; padding: 8px 15px; background: transparent; border: 1px solid #ef4444; color: #ef4444; font-size:0.85rem;"><i class="fa-solid fa-user-xmark"></i> Deny</button>
+                                </div>
                             </div>
                         `).join('');
                     }
@@ -3301,6 +3308,35 @@ function startAdminVoiceCommand() {
             if(!confirm("Approve this user's account?")) return;
             await fetch('/api/admin/approve-user', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: email}) });
             window.renderAdminApprovalsView();
+        };
+        window.executeAdminUserRejection = async function(email) {
+            if(!confirm("Are you sure you want to deny access and purge this request?")) return;
+            await fetch('/api/admin/reject-user', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: email}) });
+            window.renderAdminApprovalsView();
+        };
+
+        window.deleteSystemUser = async function(email) {
+            if(!confirm(`Are you sure you want to permanently delete the account for ${email}?`)) return;
+            try {
+                const res = await fetch('/api/admin/delete-user', { method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: email}) });
+                if (res.ok) {
+                    globalUsersData = globalUsersData.filter(u => u.email !== email);
+                    renderUsers();
+                }
+            } catch(e) { alert("Error deleting user."); }
+        };
+
+        window.banSystemUser = async function(email, name) {
+            const reason = prompt(`WARNING: You are about to permanently BAN ${name}. Provide a reason for the audit log (or leave blank to proceed):`);
+            if (reason === null) return; // User clicked Cancel
+            try {
+                const res = await fetch('/api/admin/ban-user', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: email, name: name}) });
+                if (res.ok) {
+                    globalUsersData = globalUsersData.filter(u => u.email !== email);
+                    renderUsers();
+                    alert(`🚫 ${name} has been permanently banned from InfraHub.`);
+                }
+            } catch(e) { alert("Error banning user."); }
         };
 
         window.executeLeaveResolution = async function(id, status) {

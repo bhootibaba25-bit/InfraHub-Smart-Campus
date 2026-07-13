@@ -1696,6 +1696,51 @@ def approve_user():
     except Exception as e: return jsonify({"status": "error"})
     finally: conn.close()
 
+@app.route('/api/admin/reject-user', methods=['POST'])
+def reject_user():
+    email = request.json.get('email')
+    conn = get_db_connection()
+    try:
+        conn.execute("DELETE FROM technicians WHERE name = (SELECT name FROM users WHERE email = %s)", (email,))
+        conn.execute("DELETE FROM users WHERE email = %s", (email,))
+        return jsonify({"status": "success"})
+    except Exception as e: 
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally: 
+        conn.close()
+
+@app.route('/api/admin/delete-user', methods=['DELETE'])
+def delete_system_user():
+    email = request.json.get('email')
+    conn = get_db_connection()
+    try:
+        conn.execute("DELETE FROM technicians WHERE name = (SELECT name FROM users WHERE email = %s)", (email,))
+        conn.execute("DELETE FROM users WHERE email = %s", (email,))
+        return jsonify({"status": "success"})
+    except Exception as e: 
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally: 
+        conn.close()
+
+@app.route('/api/admin/ban-user', methods=['POST'])
+def ban_system_user():
+    data = request.json
+    email = data.get('email')
+    name = data.get('name')
+    conn = get_db_connection()
+    try:
+        # Insert identifiers into the banned_users ledger
+        conn.execute("INSERT INTO banned_users (identifier) VALUES (%s) ON CONFLICT DO NOTHING", (name,))
+        conn.execute("INSERT INTO banned_users (identifier) VALUES (%s) ON CONFLICT DO NOTHING", (email,))
+        # Purge their active accounts
+        conn.execute("DELETE FROM technicians WHERE name = %s", (name,))
+        conn.execute("DELETE FROM users WHERE email = %s", (email,))
+        return jsonify({"status": "success"})
+    except Exception as e: 
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally: 
+        conn.close()
+
 @app.route('/api/admin/process-leave', methods=['POST'])
 def process_leave():
     req_id = request.json.get('id')
