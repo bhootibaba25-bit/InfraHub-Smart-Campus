@@ -633,16 +633,33 @@ function startAdminVoiceCommand() {
 
         function timeAgo(dateInput) {
             if (!dateInput) return "Just now";
-            let safeDateString = String(dateInput).replace(' ', 'T');
-            const source = new Date(safeDateString);
+            
+            // 1. Let the browser parse the date natively (handles GMT strings perfectly)
+            let source = new Date(dateInput);
+            
+            // 2. Fallback just in case it's a raw Postgres format missing the 'T'
+            if (isNaN(source.getTime())) {
+                source = new Date(String(dateInput).replace(' ', 'T') + 'Z'); 
+            }
+            
+            // 3. If it STILL fails, just return the raw input
+            if (isNaN(source.getTime())) return String(dateInput);
+            
             const now = new Date();
             const secondsPast = Math.floor((now.getTime() - source.getTime()) / 1000);
             
-            if (isNaN(secondsPast)) return String(dateInput); 
             if (secondsPast < 0 || secondsPast < 60) return "Just now";
             if (secondsPast < 3600) return `${Math.floor(secondsPast / 60)}m ago`;
             if (secondsPast < 86400) return `${Math.floor(secondsPast / 3600)}h ago`;
-            return source.toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+            
+            // 4. If it's older than 24 hours, convert it to a beautiful Local Time string!
+            return source.toLocaleString('en-IN', {
+                month: 'short', 
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
+            });
         }
 
         function exportTicketsToCSV() {
@@ -2142,7 +2159,7 @@ function startAdminVoiceCommand() {
         };
 
         // ==========================================
-        // TTR PLAYBACK MODAL
+        // TTR PLAYBACK MODAL (LOCAL TIME FIX)
         // ==========================================
         window.viewTTR = function(ticketId) {
             const t = window.ticketCache[ticketId];
@@ -2151,17 +2168,42 @@ function startAdminVoiceCommand() {
                 return;
             }
             
-            let created = t.created_at || 'Unknown';
-            let updated = t.last_updated_at || 'Unknown';
-            let timeTaken = t.time_taken_mins || 0;
+            // Helper function to safely convert UTC/GMT text string to your browser's local timezone
+            const formatToLocalTime = (dateInput) => {
+                if (!dateInput || dateInput === 'Unknown') return 'Unknown';
+                const dateObj = new Date(dateInput);
+                if (isNaN(dateObj.getTime())) return dateInput; 
+                
+                return dateObj.toLocaleString('en-IN', {
+                    weekday: 'short',
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true
+                });
+            };
+
+            let created = formatToLocalTime(t.created_at);
+            let updated = formatToLocalTime(t.last_updated_at);
+            
+            // If the ticket is still open, show an active status label instead of 0 Mins
+            let timeTakenText = `${t.time_taken_mins || 0} Mins`;
+            if (['Pending', 'Assigned', 'In Progress', 'Awaiting Parts', 'Decline Requested'].includes(t.status)) {
+                timeTakenText = `<span style="color: #fbbf24;"><i class="fa-solid fa-spinner fa-spin"></i> Active (Tracking Live)</span>`;
+            } else {
+                timeTakenText = `<span style="color: #10b981;">${timeTakenText}</span>`;
+            }
             
             showModal(`TTR Playback: ${ticketId}`, `
                 <div style="background: rgba(0,0,0,0.2); padding: 20px; border-radius: 8px;">
-                    <h3 style="color: #38bdf8; margin-bottom: 15px;"><i class="fa-solid fa-stopwatch"></i> Total Time to Resolution: ${timeTaken} Mins</h3>
+                    <h3 style="color: #38bdf8; margin-bottom: 15px;"><i class="fa-solid fa-stopwatch"></i> Total Time to Resolution: ${timeTakenText}</h3>
                     <ul style="color: #cbd5e1; list-style-type: none; padding: 0; font-size: 0.95rem; line-height: 2;">
                         <li><i class="fa-solid fa-play" style="color: #10b981; width: 25px;"></i> <b>Created At:</b> ${created}</li>
                         <li><i class="fa-solid fa-flag-checkered" style="color: #a855f7; width: 25px;"></i> <b>Last Updated:</b> ${updated}</li>
-                        <li><i class="fa-solid fa-user-gear" style="color: #fbbf24; width: 25px;"></i> <b>Handled By:</b> ${t.assigned_technician || 'Unassigned'}</li>
+                        <li><i class="fa-solid fa-user-gear" style="color: #fbbf24; width: 25px;"></i> <b>Handled By:</b> ${safeText(t.assigned_technician) || 'Unassigned'}</li>
                         <li><i class="fa-solid fa-signal" style="color: #38bdf8; width: 25px;"></i> <b>Final Status:</b> ${t.status}</li>
                     </ul>
                 </div>
