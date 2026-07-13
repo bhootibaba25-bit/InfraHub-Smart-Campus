@@ -1527,7 +1527,21 @@ def get_campus_briefing():
         try:
             task_client = AI_POOL.get("briefing")
             if task_client:
-                prompt = f"You are the AI manager of a campus maintenance system. Write a quick, professional 2-sentence morning briefing. Current stats: {pending_count} pending tickets, {active_count} active tickets, and {low_stock} low stock items. Be concise, operational, and do not use formatting like bolding or asterisks."
+                # Calculate current IST time dynamically
+                from datetime import datetime, timedelta
+                ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
+                hour = ist_time.hour
+                
+                if hour < 12:
+                    time_of_day = "morning"
+                elif hour < 17:
+                    time_of_day = "afternoon"
+                else:
+                    time_of_day = "evening"
+
+                # Pass the dynamic time_of_day variable directly to Gemini
+                prompt = f"You are the AI manager of a campus maintenance system. Write a quick, professional 2-sentence {time_of_day} briefing. Current stats: {pending_count} pending tickets, {active_count} active tickets, and {low_stock} low stock items. Be concise, operational, and do not use formatting like bolding or asterisks."
+                
                 response = task_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
                 
                 LAST_BRIEFING_TEXT = response.text.strip()
