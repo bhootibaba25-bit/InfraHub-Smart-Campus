@@ -401,7 +401,7 @@ def export_users():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally: 
         conn.close()
-        
+
 @app.route('/api/analytics', methods=['GET'])
 def get_analytics():
     conn = get_db_connection()
@@ -538,22 +538,60 @@ def ai_custom_chat():
     try:
         live_context = ""
         
-        # 1. Base Stats (Keep the general counts)
+        # MASSIVE ROLE-BASED CONTEXT INJECTION
         if user_role in ['Portal Admin', 'Master Admin']:
             pending = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status = 'Pending'").fetchone()['c']
             active = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE status IN ('Assigned', 'In Progress')").fetchone()['c']
-            live_context += f"System Stats: {pending} pending, {active} active.\n"
+            live_context += f"System Stats: {pending} pending, {active} active.\n\n"
+            
+            # 1. Tech Roster Info
+            techs = conn.execute("SELECT name, department, is_on_shift, on_break, current_active_hours FROM technicians").fetchall()
+            live_context += "TECHNICIAN ROSTER STATUS:\n"
+            for t in techs:
+                state = "On Shift" if t['is_on_shift'] else "Off Duty"
+                if t['on_break']: state = "On Holiday/Break"
+                live_context += f"- {t['name']} ({t['department']}): {state}, Logged: {t['current_active_hours']} mins.\n"
+                
+            # 2. Inventory / Stock Requests
+            low_stock = conn.execute("SELECT item_name, stock_level FROM inventory WHERE stock_level <= reorder_threshold").fetchall()
+            if low_stock:
+                live_context += "\nLOW STOCK ALERTS:\n"
+                for s in low_stock:
+                    live_context += f"- {s['item_name']}: {s['stock_level']} units left.\n"
+                    
+            # 3. HR & Approvals (Leaves)
+            leaves = conn.execute("SELECT tech_name, start_date, end_date, reason FROM leave_requests WHERE status = 'Pending'").fetchall()
+            if leaves:
+                live_context += "\nPENDING LEAVE REQUESTS:\n"
+                for l in leaves:
+                    live_context += f"- {l['tech_name']} requested {l['start_date']} to {l['end_date']}. Reason: {l['reason']}\n"
+                    
+            # 4. Agent Activity Log
+            recent_audit = conn.execute("SELECT action, target, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 5").fetchall()
+            if recent_audit:
+                live_context += "\nRECENT AGENT ACTIVITY LOGS:\n"
+                for a in recent_audit:
+                    live_context += f"- Action: {a['action']} on {a['target']} at {a['created_at']}\n"
+
         elif user_role in ['Campus Technician', 'Master Technician']:
             my_tasks = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE assigned_technician = %s AND status IN ('Assigned', 'In Progress', 'Pending')", (user_name,)).fetchone()['c']
-            live_context += f"Technician Stats: You have {my_tasks} active tasks.\n"
+            my_profile = conn.execute("SELECT points, badges_unlocked FROM technicians WHERE name = %s", (user_name,)).fetchone()
+            
+            live_context += f"My Tasks: {my_tasks} active tasks.\n"
+            if my_profile:
+                live_context += f"My Analytics & Trends: {my_profile['points']} Points. Badges: {my_profile['badges_unlocked']}.\n\n"
+                
+            leaves = conn.execute("SELECT start_date, status FROM leave_requests WHERE tech_name = %s", (user_name,)).fetchall()
+            if leaves:
+                live_context += "My Leave Requests Status:\n"
+                for l in leaves:
+                    live_context += f"- Date {l['start_date']}: {l['status']}\n"
         else:
             my_tickets = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE user_name = %s AND status NOT IN ('Resolved', 'Closed', 'Cancelled')", (user_name,)).fetchone()['c']
             live_context += f"User Stats: You have {my_tickets} active requests.\n"
 
-        # 2. Dynamic Database Search (The Upgraded Memory)
+        # TICKET SEMANTIC MEMORY BUFFER
         search_results = []
-        
-        # A. Look for specific Ticket IDs in the chat (e.g., req-8342)
         ticket_matches = re.findall(r'req-\d+', user_message, re.IGNORECASE)
         if ticket_matches:
             for t_id in ticket_matches:
@@ -561,9 +599,6 @@ def ai_custom_chat():
                 if t_record:
                     search_results.append(t_record)
         
-        # B. Semantic Context Buffer (The Ultimate Typo Fix)
-        # By feeding the 25 most recent relevant tickets directly to Gemini, 
-        # the AI natively understands typos (samrt = smart) and synonyms perfectly.
         if user_role in ['Portal Admin', 'Master Admin']:
             recent_tickets = conn.execute("SELECT * FROM tickets ORDER BY last_updated_at DESC LIMIT 25").fetchall()
         elif user_role in ['Campus Technician', 'Master Technician']:
@@ -575,26 +610,26 @@ def ai_custom_chat():
             if not any(sr['ticket_id'] == t_rec['ticket_id'] for sr in search_results):
                 search_results.append(t_rec)
 
-        # C. Inject findings into Gemini's context window
         if search_results:
-            live_context += "\nRelevant Database Records For Context:\n"
+            live_context += "\nRELEVANT TICKETS FOR CONTEXT:\n"
             for r in search_results:
-                live_context += f"- Ticket {r['ticket_id']}: '{r['issue']}' | Loc: {r['building']} {r['location']} | Status: {r['status']} | Tech: {r['assigned_technician']}\n"
-
+                live_context += f"- Ticket {r['ticket_id']}: '{r['issue']}' | Loc: {r['building']} | Status: {r['status']} | Tech: {r['assigned_technician']}\n"
         
-        # 3. Send to Gemini
         task_client = AI_POOL.get("chat")
         if task_client:
             prompt = f"""
-            You are 'InfraHub Nexus', the highly advanced, professional, and slightly futuristic AI assistant for a smart campus maintenance portal.
+            You are 'FixIt', the highly advanced, cute, and factual AI assistant for a smart campus maintenance portal.
             The person talking to you is {user_name}, and their system role is {user_role}. 
             
-            [LIVE SYSTEM CONTEXT (Do not mention this context unless asked. It contains real database records pulled specifically for this user's query)]: 
+            STRICT RULES YOU MUST FOLLOW:
+            1. You must ALWAYS address the user as 'Boss'.
+            2. Talk factually and truthfully. Do NOT say "right" or agree blindly to every action or statement I make.
+            3. Provide your answers in a descriptive, wise, and longer format.
+            
+            [LIVE SYSTEM CONTEXT DATABASE]: 
             {live_context}
             
-            Answer the user's query intelligently, directly, and concisely. 
-            - If they ask general knowledge questions, answer them normally.
-            - If they ask about their tickets, tasks, or specific items (like a TV or a REQ- number), rely ONLY on the 'Relevant Database Records Found' provided in the LIVE SYSTEM CONTEXT. 
+            Answer the user's query intelligently. If they ask about specific system data (stock, technicians on duty, leaves, tickets, analytics), rely ONLY on the 'LIVE SYSTEM CONTEXT DATABASE' provided above.
             
             User's Query: "{user_message}"
             """
@@ -608,7 +643,7 @@ def ai_custom_chat():
         print(f"Chat AI Error: {e}")
         return jsonify({"status": "error", "reply": f"My neural net is experiencing interference: {str(e)}"})
     finally:
-        conn.close()       
+        conn.close()      
 
 @app.route('/api/ai/quick-fix', methods=['POST'])
 def ai_quick_fix():

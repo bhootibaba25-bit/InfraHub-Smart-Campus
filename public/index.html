@@ -212,9 +212,9 @@
             .human-avatar-large { height: 100%; max-height: 550px; object-fit: contain; z-index: 2; animation: floatHuman 4s ease-in-out infinite; filter: drop-shadow(0 0 30px rgba(56, 189, 248, 0.3)); }
             .hologram-base-large { position: absolute; bottom: -20px; width: 280px; height: 45px; background: radial-gradient(ellipse at center, rgba(56, 189, 248, 0.6) 0%, transparent 70%); border-radius: 50%; animation: pulseBase 4s ease-in-out infinite; z-index: 1; box-shadow: 0 0 50px rgba(56, 189, 248, 0.4); }
             
-            /* Sleek Holographic Chat Panel */
+            /* Sleek Holographic Chat Panel (Enlarged) */
             .ai-speech-bubble {
-                position: relative; width: 420px; 
+                position: relative; width: 550px; /* Increased from 420px */
                 background: linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%);
                 backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
                 border: 1px solid rgba(56, 189, 248, 0.3); border-top: 1px solid rgba(255, 255, 255, 0.2);
@@ -223,7 +223,7 @@
                 display: flex; flex-direction: column; overflow: hidden;
             }
             #ai-ar-overlay.active .ai-speech-bubble { transform: translateX(0) scale(1); opacity: 1; }
-            
+
             /* Chat Header */
             .ai-chat-header { background: rgba(0, 0, 0, 0.3); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
             .ai-chat-header span { color: #38bdf8; font-weight: 800; font-size: 0.85rem; letter-spacing: 1.5px; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
@@ -232,10 +232,19 @@
             .ai-close-btn:hover { color: white; background: rgba(239, 68, 68, 0.8); box-shadow: 0 0 15px rgba(239, 68, 68, 0.5); }
             
             /* Chat Body */
-            .ai-speech-text { height: 280px; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; }
+            .ai-speech-text { height: 420px; /* Increased from 280px */ overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; }
             .ai-speech-text::-webkit-scrollbar { width: 5px; }
             .ai-speech-text::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.4); border-radius: 5px; }
-            
+
+            /* Avatar Mouth Animation */
+            .talking-animation {
+                animation: floatHuman 4s ease-in-out infinite, talkWobble 0.25s infinite alternate !important;
+            }
+            @keyframes talkWobble {
+                0% { transform: scaleY(1) translateY(0); }
+                100% { transform: scaleY(1.03) translateY(-4px); }
+            }
+
             /* Messages */
             .chat-message { max-width: 85%; padding: 12px 18px; border-radius: 18px; font-size: 0.95rem; line-height: 1.5; animation: slideUp 0.4s ease-out forwards; position: relative; }
             .chat-bot-message { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); color: #e2e8f0; align-self: flex-start; border-bottom-left-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
@@ -474,7 +483,7 @@
             
             <div class="ai-speech-bubble">
                 <div class="ai-chat-header">
-                    <span><i class="fa-solid fa-satellite-dish fa-beat"></i> Nexus AI Online</span>
+                    <span><i class="fa-solid fa-face-smile-wink fa-bounce" style="color: #f472b6; font-size: 1.3rem;"></i> FixIt Online</span>
                     <button type="button" class="ai-close-btn" onclick="toggleChat()"><i class="fa-solid fa-xmark"></i></button>
                 </div>
 
@@ -498,7 +507,7 @@
     <button type="button" id="mic-btn" onclick="startVoiceRecognition()" class="ai-mic-btn" title="Click to Speak">
         <i class="fa-solid fa-microphone"></i>
     </button>
-    <input type="text" id="custom-chat-input" class="ai-chat-input" placeholder="Ask Nexus AI anything..." oninput="window.usedMicLast = false;" onkeydown="if(event.key === 'Enter') sendCustomChatMessage()">
+    <input type="text" id="custom-chat-input" class="ai-chat-input" placeholder="Ask FixIt anything..." oninput="window.usedMicLast = false;" onkeydown="if(event.key === 'Enter') sendCustomChatMessage()">
     <button type="button" onclick="sendCustomChatMessage()" class="ai-send-btn">
         <i class="fa-solid fa-paper-plane"></i>
     </button>
@@ -506,8 +515,8 @@
             </div>
         </div> 
 
-        <button type="button" id="chat-fab" onclick="toggleChat()" style="position: fixed; bottom: 30px; right: 30px; width: 65px; height: 65px; border-radius: 50%; background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%); color: white; border: none; font-size: 1.8rem; cursor: pointer; box-shadow: 0 10px 25px rgba(2, 132, 199, 0.4); z-index: 4000; transition: transform 0.2s ease;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
-            <i class="fa-solid fa-robot"></i>
+        <button type="button" id="chat-fab" onclick="toggleChat()" style="position: fixed; bottom: 30px; right: 30px; width: 65px; height: 65px; border-radius: 50%; background: linear-gradient(135deg, #f472b6 0%, #db2777 100%); color: white; border: none; font-size: 2rem; cursor: pointer; box-shadow: 0 10px 25px rgba(219, 39, 119, 0.4); z-index: 4000; transition: transform 0.2s ease;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+            <i class="fa-solid fa-face-smile-wink fa-bounce"></i>
         </button>
             </div>
         </div>
@@ -3419,7 +3428,7 @@ function startVoiceRecognition() {
         
         setTimeout(() => {
             if(inputField.placeholder.includes("Listening")) {
-                inputField.placeholder = "Ask Nexus AI anything...";
+                inputField.placeholder = "Ask FixIt anything...";
             }
         }, 1500);
     };
@@ -3427,73 +3436,80 @@ function startVoiceRecognition() {
     recognition.start();
 }
 
-function speakNexusResponse(text) {
+function speakFixItResponse(text) {
     if (!('speechSynthesis' in window)) return;
-    
-    // Stop any ongoing speech so it doesn't overlap
     window.speechSynthesis.cancel();
     
-    // Clean up the text (remove markdown asterisks, HTML tags, and emojis so it reads cleanly)
-    // Clean up the text safely without breaking the HTML parser
     const htmlRegex = new RegExp('<[^>]*>?', 'gm');
     const markdownRegex = new RegExp('[*_#]', 'g');
     const cleanText = text.replace(htmlRegex, '').replace(markdownRegex, '');
     
     const utterance = new SpeechSynthesisUtterance(cleanText);
-    
-    // Find a "sweet" female voice. Chrome provides 'Google UK English Female' or 'Google US English' which sound great.
     const voices = window.speechSynthesis.getVoices();
     const sweetVoice = voices.find(v => v.name.includes('Female') || v.name.includes('Samantha') || v.name.includes('Google UK English Female')) || voices[0];
-    
     if (sweetVoice) utterance.voice = sweetVoice;
     
-    // Adjust pitch and speed to make it sound pleasant and natural
-    utterance.pitch = 1.2; 
+    utterance.pitch = 1.3; // Higher pitch for a cuter voice
     utterance.rate = 1.05;
+    
+    // Trigger mouth movement when speech starts
+    utterance.onstart = function() {
+        const avatar = document.querySelector('.human-avatar-large');
+        if(avatar) avatar.classList.add('talking-animation');
+    };
+    
+    // Stop mouth movement when speech ends
+    utterance.onend = function() {
+        const avatar = document.querySelector('.human-avatar-large');
+        if(avatar) avatar.classList.remove('talking-animation');
+    };
     
     window.speechSynthesis.speak(utterance);
 }    
-        window.sendCustomChatMessage = async function() {
-            const inputField = document.getElementById('custom-chat-input');
-            const message = inputField.value.trim();
-            if (!message) return;
 
-            // 1. Immediately post the user's message to the chat window
-            appendChatMessage(message, true);
-            inputField.value = '';
+window.sendCustomChatMessage = async function() {
+    const inputField = document.getElementById('custom-chat-input');
+    const message = inputField.value.trim();
+    if (!message) return;
 
-            // 2. Create a temporary loading indicator
-            const chatBody = document.getElementById('chat-body');
-            const loadingId = 'loading-' + Date.now();
-            chatBody.innerHTML += `<div id="${loadingId}" class="chat-message chat-bot-message"><i class="fa-solid fa-circle-notch fa-spin"></i> Nexus is processing...</div>`;
-            chatBody.scrollTop = chatBody.scrollHeight;
+    appendChatMessage(message, true);
+    inputField.value = '';
 
-            // 3. Fetch response from the Python backend
-            try {
-                const res = await fetch('/api/ai/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        message: message, 
-                        user_name: loggedInName, 
-                        role: loggedInRole 
-                    })
-                });
-                const data = await res.json();
-                
-                // 4. Remove loader and display AI text
-                document.getElementById(loadingId).remove();
-                if (data.status === 'success') {
-                    appendChatMessage(data.reply, false);
-                    speakNexusResponse(data.reply); 
-                } else {
-                    appendChatMessage("⚠️ Connection to Nexus mainframe lost.", false);
-                }
-            } catch (e) {
-                document.getElementById(loadingId).remove();
-                appendChatMessage("⚠️ Network link severed.", false);
+    const chatBody = document.getElementById('chat-body');
+    const loadingId = 'loading-' + Date.now();
+    chatBody.innerHTML += `<div id="${loadingId}" class="chat-message chat-bot-message"><i class="fa-solid fa-circle-notch fa-spin"></i> FixIt is thinking...</div>`;
+    chatBody.scrollTop = chatBody.scrollHeight;
+
+    try {
+        const res = await fetch('/api/ai/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                message: message, 
+                user_name: loggedInName, 
+                role: loggedInRole 
+            })
+        });
+        const data = await res.json();
+        
+        document.getElementById(loadingId).remove();
+        if (data.status === 'success') {
+            appendChatMessage(data.reply, false);
+            
+            // ONLY speak if the microphone was used to ask the question
+            if (window.usedMicLast) {
+                speakFixItResponse(data.reply); 
             }
-        };
+            window.usedMicLast = false; // Reset the mic flag immediately
+            
+        } else {
+            appendChatMessage("⚠️ Connection to FixIt mainframe lost.", false);
+        }
+    } catch (e) {
+        document.getElementById(loadingId).remove();
+        appendChatMessage("⚠️ Network link severed.", false);
+    }
+};
     </script>
     </body>
     </html>
