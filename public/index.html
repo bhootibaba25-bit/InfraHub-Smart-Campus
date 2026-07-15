@@ -478,7 +478,11 @@
         <div id="ai-ar-overlay">
             <div class="ai-character-wrapper">
                 <div class="hologram-base-large"></div>
-                <img src="avatar.png" class="human-avatar-large" alt="Virtual Technician Assistant">
+                <!-- Replaced static IMG with a VIDEO element -->
+                <video id="ai-avatar-video" class="human-avatar-large" loop muted playsinline>
+                    <!-- Make sure your video file is named avatar_talking.mp4 and is in the public folder -->
+                    <source src="avatar_talking.mp4" type="video/mp4">
+                </video>
             </div>
             
             <div class="ai-speech-bubble">
@@ -2969,7 +2973,16 @@ function startAdminVoiceCommand() {
         // AR Bot Chat
         function toggleChat() {
             const overlay = document.getElementById('ai-ar-overlay');
-            if (overlay) overlay.classList.toggle('active');
+            if (overlay) {
+                overlay.classList.toggle('active');
+                
+                // If the chat is being closed (no longer has 'active' class), cut the audio immediately
+                if (!overlay.classList.contains('active')) {
+                    if ('speechSynthesis' in window) {
+                        window.speechSynthesis.cancel();
+                    }
+                }
+            }
         }
         function appendChatMessage(text, isUser) {
             const chatBody = document.getElementById('chat-body');
@@ -3452,16 +3465,23 @@ function speakFixItResponse(text) {
     utterance.pitch = 1.3; // Higher pitch for a cuter voice
     utterance.rate = 1.05;
     
-    // Trigger mouth movement when speech starts
+    // Start video playback (mouth moving) when speech starts
     utterance.onstart = function() {
-        const avatar = document.querySelector('.human-avatar-large');
-        if(avatar) avatar.classList.add('talking-animation');
+        const video = document.getElementById('ai-avatar-video');
+        if(video) {
+            video.play();
+            video.classList.add('talking-animation'); // Keeps the floating hover effect
+        }
     };
     
-    // Stop mouth movement when speech ends
+    // Pause video (mouth stops) when speech ends
     utterance.onend = function() {
-        const avatar = document.querySelector('.human-avatar-large');
-        if(avatar) avatar.classList.remove('talking-animation');
+        const video = document.getElementById('ai-avatar-video');
+        if(video) {
+            video.pause();
+            video.currentTime = 0; // Resets the video to the first frame (mouth closed)
+            video.classList.remove('talking-animation');
+        }
     };
     
     window.speechSynthesis.speak(utterance);
