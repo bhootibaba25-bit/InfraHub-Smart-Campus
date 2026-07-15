@@ -379,32 +379,29 @@ def register():
     finally:
         conn.close()
             
-@app.route('/api/export/tickets', methods=['GET'])
-def export_tickets():
+@app.route('/api/export/users', methods=['GET'])
+def export_users():
     conn = get_db_connection()
     try:
-        tickets = conn.execute("""
-            SELECT t.ticket_id, t.user_name, t.department, t.issue, t.status, t.time_taken_mins, 
-                   COALESCE(tech.current_active_hours, 0) as current_active_hours, t.created_at
-            FROM tickets t 
-            LEFT JOIN technicians tech ON t.assigned_technician = tech.name
-            ORDER BY t.created_at DESC
-        """).fetchall()
+        # Fetch all user data
+        users = conn.execute("SELECT id, name, email, role, account_status FROM users ORDER BY role, name").fetchall()
         
         si = StringIO()
         cw = csv.writer(si)
-        cw.writerow(['Ticket ID', 'User', 'Department', 'Issue', 'Status', 'Resolution Time (Mins)', 'Tech Total Hours Today', 'Date'])
+        # Write the CSV Headers
+        cw.writerow(['Database ID', 'Full Name', 'Email Address', 'System Role', 'Account Status'])
         
-        for t in tickets:
-            cw.writerow([t['ticket_id'], t['user_name'], t['department'], t['issue'], t['status'], t['time_taken_mins'], t['current_active_hours'], t['created_at']])
+        # Write the Rows
+        for u in users:
+            cw.writerow([u['id'], u['name'], u['email'], u['role'], u['account_status']])
         
         output = si.getvalue()
-        return Response(output, mimetype="text/csv", headers={"Content-Disposition": "attachment;filename=InfraHub_Finance_Report.csv"})
+        return Response(output, mimetype="text/csv", headers={"Content-Disposition": "attachment;filename=InfraHub_User_Directory.csv"})
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)}), 500
     finally: 
         conn.close()
-
+        
 @app.route('/api/analytics', methods=['GET'])
 def get_analytics():
     conn = get_db_connection()

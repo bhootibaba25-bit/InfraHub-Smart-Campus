@@ -893,7 +893,7 @@ function startAdminVoiceCommand() {
                 content: `
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <h3 style="color: white; margin: 0;">System Users & Reports</h3>
-                    <button onclick="window.location.href='/api/export/tickets'" style="background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold;"><i class="fa-solid fa-file-excel"></i> Export All Tickets</button>
+                    <button onclick="window.location.href='/api/export/users'" style="background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);"><i class="fa-solid fa-users-viewfinder"></i> Export System Users</button>
                 </div>
                 <div style="display:flex; gap:10px; margin-bottom:20px;">
                         <div class="input-group" style="flex:2; margin-bottom:0;">
@@ -910,7 +910,7 @@ function startAdminVoiceCommand() {
                     </div>
                 <div id="user-directory-area"><p style="color:white;"><i class="fa-solid fa-spinner fa-spin"></i> Loading users...</p></div>
             `
-        },
+            },
         // ↓↓↓ PASTE NEW INVENTORY MODULE EXACTLY HERE ↓↓↓
         { 
             id: 'inventory-control', icon: 'fa-boxes-stacked', name: 'Digital Stockroom', 
@@ -1201,7 +1201,7 @@ function startAdminVoiceCommand() {
                     <td style="padding: 15px;"><span class="badge" style="background: rgba(255,255,255,0.2);">${safeText(u.role || 'User')}</span></td>
                     <td style="padding: 15px; display: flex; gap: 10px;">
                         <button onclick="deleteSystemUser('${u.email}')" class="primary-btn" style="width: auto; padding: 6px 12px; background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid #ef4444; font-size: 0.8rem;"><i class="fa-solid fa-trash"></i> Delete</button>
-                        <button onclick="banSystemUser('${u.email}', '${safeText(u.name).replace(/'/g, "\\'")}')" class="primary-btn" style="width: auto; padding: 6px 12px; background: #ef4444; color: white; border: none; font-size: 0.8rem;"><i class="fa-solid fa-gavel"></i> Ban</button>
+                        <button onclick="banSystemUser('${u.email}', '${safeText(u.name).replace(/'/g, "\\'")}')" class="primary-btn" style="width: auto; padding: 6px 12px; background: #f97316; color: white; border: none; font-size: 0.8rem; box-shadow: 0 4px 10px rgba(249, 115, 22, 0.3);"><i class="fa-solid fa-user-slash"></i> Ban</button>
                     </td>
                 </tr>
             `).join('');
