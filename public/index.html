@@ -2964,21 +2964,21 @@ function startAdminVoiceCommand() {
                 }
             } catch (e) { console.error("Analytics load failed", e); }
         };
-        // ↑↑↑ END OF UPGRADED ANALYTICS LOADER ↑↑↑
+        
         // AR Bot Chat
         function toggleChat() {
             const overlay = document.getElementById('ai-ar-overlay');
             if (overlay) {
-                overlay.classList.toggle('active');
-                
-                // If the chat is being closed (no longer has 'active' class), cut the audio immediately
-                if (!overlay.classList.contains('active')) {
-                    if ('speechSynthesis' in window) {
-                        window.speechSynthesis.cancel();
-                    }
+                // Instantly kill any ongoing speech whenever the chat is toggled
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
                 }
+                
+                // Then toggle the visibility
+                overlay.classList.toggle('active');
             }
         }
+
         function appendChatMessage(text, isUser) {
             const chatBody = document.getElementById('chat-body');
             const msgDiv = document.createElement('div');
