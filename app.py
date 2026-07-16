@@ -869,7 +869,7 @@ def monitoring_agent_loop():
             
             # --- TECHNICIAN WORKLOAD BALANCER (TAMED) ---
             techs = conn.execute("""
-                SELECT t.name, t.max_shift_hours, t.overtime_opt_in 
+                SELECT t.name, t.department, t.max_shift_hours, t.overtime_opt_in 
                 FROM technicians t
                 JOIN users u ON t.name = u.name
                 WHERE t.is_on_shift = 1 AND t.on_break = 0 AND u.role != 'Master Technician'
@@ -897,17 +897,18 @@ def monitoring_agent_loop():
                         conn.execute("UPDATE tickets SET status = 'Assigned' WHERE ticket_id = %s", (queued_ticket['ticket_id'],))
                         add_notification(t['name'], None, f"QUEUE PROMOTION: Task {queued_ticket['ticket_id']} has been moved to your Active board.", db_conn=conn)
                 
-                # Fetch Unassigned only if they have capacity
-                if (minutes_worked_today < max_minutes or t['overtime_opt_in'] == 1) and active_count < 2:
+                # BUG FIX: Allow fetching even if active >= 2 so tickets build up in the 'Queued' backlog.
+                # BUG FIX: Match the ticket department to the technician's department.
+                if (minutes_worked_today < max_minutes or t['overtime_opt_in'] == 1):
                     next_ticket = conn.execute('''
                         SELECT ticket_id FROM tickets 
                         WHERE assigned_technician = 'Unassigned' AND status = 'Pending' 
+                        AND (department = %s OR %s = 'All')
                         ORDER BY priority DESC, created_at ASC LIMIT 1
-                    ''').fetchone()
+                    ''', (t['department'], t['department'])).fetchone()
                     
                     if next_ticket:
                         tool_assign_ticket(next_ticket['ticket_id'], t['name'], db_conn=conn)
-
             # --- ABSENTEE RE-ROUTING ---
             absent_tasks = conn.execute('''
                 SELECT ticket_id, assigned_technician FROM tickets 
