@@ -478,16 +478,11 @@
         <div id="ai-ar-overlay">
             <div class="ai-character-wrapper">
                 <div class="hologram-base-large"></div>
-                <!-- Replaced static IMG with a VIDEO element -->
-                <video id="ai-avatar-video" class="human-avatar-large" loop muted playsinline>
-                    <!-- Make sure your video file is named avatar_talking.mp4 and is in the public folder -->
-                    <source src="avatar_talking.mp4" type="video/mp4">
-                </video>
+                <img id="ai-avatar-image" src="avatar.png" class="human-avatar-large" alt="Virtual Technician Assistant">
             </div>
             
-            <div class="ai-speech-bubble">
-                <div class="ai-chat-header">
-                    <span><i class="fa-solid fa-face-smile-wink fa-bounce" style="color: #f472b6; font-size: 1.3rem;"></i> FixIt Online</span>
+            <div class="ai-chat-header">
+                    <span><i class="fa-solid fa-robot fa-bounce" style="color: #38bdf8; font-size: 1.3rem;"></i> FixIt Online</span>
                     <button type="button" class="ai-close-btn" onclick="toggleChat()"><i class="fa-solid fa-xmark"></i></button>
                 </div>
 
@@ -519,8 +514,8 @@
             </div>
         </div> 
 
-        <button type="button" id="chat-fab" onclick="toggleChat()" style="position: fixed; bottom: 30px; right: 30px; width: 65px; height: 65px; border-radius: 50%; background: linear-gradient(135deg, #f472b6 0%, #db2777 100%); color: white; border: none; font-size: 2rem; cursor: pointer; box-shadow: 0 10px 25px rgba(219, 39, 119, 0.4); z-index: 4000; transition: transform 0.2s ease;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
-            <i class="fa-solid fa-face-smile-wink fa-bounce"></i>
+        <button type="button" id="chat-fab" onclick="toggleChat()" style="position: fixed; bottom: 30px; right: 30px; width: 65px; height: 65px; border-radius: 50%; background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%); color: white; border: none; font-size: 1.8rem; cursor: pointer; box-shadow: 0 10px 25px rgba(2, 132, 199, 0.4); z-index: 4000; transition: transform 0.2s ease;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+            <i class="fa-solid fa-robot"></i>
         </button>
             </div>
         </div>
@@ -3465,23 +3460,16 @@ function speakFixItResponse(text) {
     utterance.pitch = 1.3; // Higher pitch for a cuter voice
     utterance.rate = 1.05;
     
-    // Start video playback (mouth moving) when speech starts
+    // Trigger CSS wobble animation when speech starts
     utterance.onstart = function() {
-        const video = document.getElementById('ai-avatar-video');
-        if(video) {
-            video.play();
-            video.classList.add('talking-animation'); // Keeps the floating hover effect
-        }
+        const avatar = document.getElementById('ai-avatar-image');
+        if(avatar) avatar.classList.add('talking-animation');
     };
     
-    // Pause video (mouth stops) when speech ends
+    // Stop CSS wobble animation when speech ends
     utterance.onend = function() {
-        const video = document.getElementById('ai-avatar-video');
-        if(video) {
-            video.pause();
-            video.currentTime = 0; // Resets the video to the first frame (mouth closed)
-            video.classList.remove('talking-animation');
-        }
+        const avatar = document.getElementById('ai-avatar-image');
+        if(avatar) avatar.classList.remove('talking-animation');
     };
     
     window.speechSynthesis.speak(utterance);
