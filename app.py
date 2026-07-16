@@ -1267,8 +1267,7 @@ def monitoring_agent_loop():
                     if next_ticket:
                         conn.execute("UPDATE tickets SET status = 'Assigned' WHERE ticket_id = %s", (next_ticket['ticket_id'],))
                         add_notification(t['name'], None, f"NEW ASSIGNMENT: Task {next_ticket['ticket_id']} assigned.", db_conn=conn)
-
-            # --- ABSENTEE RE-ROUTING ---
+                        
             # --- ABSENTEE RE-ROUTING ---
             absent_tasks = conn.execute('''
                 SELECT ticket_id, assigned_technician FROM tickets 

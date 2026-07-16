@@ -481,7 +481,9 @@
                 <img id="ai-avatar-image" src="avatar.png" class="human-avatar-large" alt="Virtual Technician Assistant">
             </div>
             
-            <div class="ai-chat-header">
+            <!-- ADDED THE MISSING SPEECH BUBBLE WRAPPER HERE -->
+            <div class="ai-speech-bubble">
+                <div class="ai-chat-header">
                     <span><i class="fa-solid fa-robot fa-bounce" style="color: #38bdf8; font-size: 1.3rem;"></i> FixIt Online</span>
                     <button type="button" class="ai-close-btn" onclick="toggleChat()"><i class="fa-solid fa-xmark"></i></button>
                 </div>
@@ -503,16 +505,16 @@
                 </div>
 
                 <div class="ai-input-area">
-    <button type="button" id="mic-btn" onclick="startVoiceRecognition()" class="ai-mic-btn" title="Click to Speak">
-        <i class="fa-solid fa-microphone"></i>
-    </button>
-    <input type="text" id="custom-chat-input" class="ai-chat-input" placeholder="Ask FixIt anything..." oninput="window.usedMicLast = false;" onkeydown="if(event.key === 'Enter') sendCustomChatMessage()">
-    <button type="button" onclick="sendCustomChatMessage()" class="ai-send-btn">
-        <i class="fa-solid fa-paper-plane"></i>
-    </button>
-</div>
-            </div>
-        </div> 
+                    <button type="button" id="mic-btn" onclick="startVoiceRecognition()" class="ai-mic-btn" title="Click to Speak">
+                        <i class="fa-solid fa-microphone"></i>
+                    </button>
+                    <input type="text" id="custom-chat-input" class="ai-chat-input" placeholder="Ask FixIt anything..." oninput="window.usedMicLast = false;" onkeydown="if(event.key === 'Enter') sendCustomChatMessage()">
+                    <button type="button" onclick="sendCustomChatMessage()" class="ai-send-btn">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div> <!-- END OF SPEECH BUBBLE WRAPPER -->
+        </div>
 
         <button type="button" id="chat-fab" onclick="toggleChat()" style="position: fixed; bottom: 30px; right: 30px; width: 65px; height: 65px; border-radius: 50%; background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%); color: white; border: none; font-size: 1.8rem; cursor: pointer; box-shadow: 0 10px 25px rgba(2, 132, 199, 0.4); z-index: 4000; transition: transform 0.2s ease;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
             <i class="fa-solid fa-robot"></i>
