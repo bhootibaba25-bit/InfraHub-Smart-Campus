@@ -2158,11 +2158,21 @@ def self_resolve_ticket(ticket_id):
 
 
 
-if __name__ == '__main__':
+# ==========================================
+# 7. PRODUCTION SERVER INITIALIZATION
+# ==========================================
+# Gunicorn bypasses the __main__ block, so we initialize the DB and Thread here.
+try:
     init_db()
-    # Start the monitoring agent ONLY when running the main app, 
-    # preventing duplicates in multi-worker production environments.
+except Exception as e:
+    print("Startup DB Init Error:", e)
+
+# Boot the AI Dispatcher background loop. 
+# The env check prevents duplicate threads if you ever test locally with Flask's reloader.
+if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+    print("⚡ Booting AI Dispatcher Background Thread...")
     monitor_thread = threading.Thread(target=monitoring_agent_loop, daemon=True)
     monitor_thread.start()
 
+if __name__ == '__main__':
     app.run(debug=True, port=5005, use_reloader=False)
