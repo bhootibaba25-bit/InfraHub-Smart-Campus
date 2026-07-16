@@ -250,7 +250,7 @@ def add_notification(target_user, target_role, message, is_urgent=0, db_conn=Non
 def tool_get_available_technician(department, ticket_building=None, db_conn=None):
     conn = db_conn or get_db_connection()
     try:
-       query = '''
+        query = '''
             SELECT t.name, 
                    (t.current_building = %s) as is_close,
                    (SELECT COUNT(*) FROM tickets WHERE assigned_technician = t.name AND status IN ('Assigned', 'In Progress', 'Pending')) as total_tasks
