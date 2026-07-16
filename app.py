@@ -269,23 +269,58 @@ def tool_get_available_technician(department, ticket_building=None, db_conn=None
 
 def tool_assign_ticket(ticket_id, technician_name, estimated_task_hours=2, db_conn=None):
     conn = db_conn or get_db_connection()
-    
     try:
-        tech = conn.execute("SELECT current_active_hours, max_shift_hours FROM technicians WHERE name = %s", (technician_name,)).fetchone()
+        # Check shift limits AND current active workload
+        tech = conn.execute("""
+            SELECT current_active_hours, max_shift_hours,
+                   (SELECT COUNT(*) FROM tickets WHERE assigned_technician = %s AND status IN ('Assigned', 'In Progress')) as active_task_count
+            FROM technicians WHERE name = %s
+        """, (technician_name, technician_name)).fetchone()
         
         max_hrs = tech['max_shift_hours'] if tech and tech['max_shift_hours'] else 8
         max_mins = max_hrs * 60
-        
         current_mins = tech['current_active_hours'] if tech and tech['current_active_hours'] else 0
         estimated_mins = estimated_task_hours * 60
+        active_tasks = tech['active_task_count'] if tech else 0
         
+        # If they have shift time left...
         if tech and (current_mins + estimated_mins) <= max_mins:
-            conn.execute("UPDATE tickets SET assigned_technician = %s, status = 'Assigned' WHERE ticket_id = %s", (technician_name, ticket_id))
-            notify_status_change(ticket_id, 'Assigned', db_conn=conn)
+            # WIP LIMIT: If they already have 2 active tasks, push to Queued
+            if active_tasks >= 2:
+                conn.execute("UPDATE tickets SET assigned_technician = %s, status = 'Queued' WHERE ticket_id = %s", (technician_name, ticket_id))
+                add_notification(technician_name, None, f"TICKET QUEUED: {ticket_id} added to your backlog.", db_conn=conn)
+            else:
+                conn.execute("UPDATE tickets SET assigned_technician = %s, status = 'Assigned' WHERE ticket_id = %s", (technician_name, ticket_id))
+                notify_status_change(ticket_id, 'Assigned', db_conn=conn)
         else:
-            conn.execute("UPDATE tickets SET assigned_technician = %s, status = 'Pending' WHERE ticket_id = %s", (technician_name, ticket_id))
+            conn.execute("UPDATE tickets SET assigned_technician = 'Unassigned', status = 'Pending' WHERE ticket_id = %s", (ticket_id,))
 
         return {"status": "success"}
+    finally:
+        if not db_conn and conn:
+            conn.close()
+
+# AND we must blind the assigner to Master Techs:
+def tool_get_available_technician(department, ticket_building=None, db_conn=None):
+    conn = db_conn or get_db_connection()
+    try:
+        query = '''
+            SELECT t.name, 
+                   (t.current_building = %s) as is_close,
+                   (SELECT COUNT(*) FROM tickets WHERE assigned_technician = t.name AND status IN ('Assigned', 'In Progress', 'Queued')) as total_tasks
+            FROM technicians t
+            JOIN users u ON t.name = u.name
+            WHERE (t.department = %s OR t.department LIKE %s OR t.department = 'All') 
+            AND t.is_on_shift = 1 
+            AND t.on_break = 0
+            AND u.role != 'Master Technician'
+            ORDER BY total_tasks ASC
+        '''
+        available_techs = conn.execute(query, (ticket_building, department, f'%{department}%')).fetchall()
+        
+        if available_techs: 
+            return {"status": "success", "technician_name": available_techs[0]['name']}
+        return {"status": "error"}
     finally:
         if not db_conn and conn:
             conn.close()
@@ -741,12 +776,11 @@ def get_tickets():
         role = request.args.get('role')
         user_name = request.args.get('name')
 
-        if role == 'Portal Admin':
+        # Master Technician shares Admin view
+        if role in ['Portal Admin', 'Master Technician']:
             tickets = conn.execute("SELECT * FROM tickets WHERE status != 'Cancelled' ORDER BY created_at DESC").fetchall()
-        elif role in ['Campus Technician', 'Master Technician']:
+        elif role == 'Campus Technician':
             tickets = conn.execute("SELECT * FROM tickets WHERE assigned_technician = %s AND status != 'Cancelled' ORDER BY created_at DESC", (user_name,)).fetchall()
-        
-        
         else: 
             tickets = conn.execute("SELECT * FROM tickets WHERE user_name = %s AND status != 'Cancelled' ORDER BY created_at DESC", (user_name,)).fetchall()
             
@@ -755,6 +789,142 @@ def get_tickets():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
+# ==========================================
+# 6. CENTRAL AI MONITORING LOOP
+# ==========================================
+def monitoring_agent_loop():
+    time.sleep(2)
+    last_pm_time = time.time() 
+    
+    while True:
+        conn = None
+        try:
+            conn = get_db_connection() 
+            
+            # --- AUTOMATED ESCALATION MATRIX ---
+            escalations = conn.execute("""
+                SELECT ticket_id, issue, created_at 
+                FROM tickets 
+                WHERE priority = 'Urgent' 
+                AND status = 'Pending' 
+                AND assigned_technician = 'Unassigned'
+                AND EXTRACT(EPOCH FROM (NOW() - created_at))/60 > 15
+                AND decline_reason IS NULL
+            """).fetchall()
+            
+            for e in escalations:
+                add_notification(None, 'Portal Admin', f"🚨 CRITICAL ESCALATION: Ticket {e['ticket_id']} has been unassigned for more than 15 minutes!", is_urgent=1, db_conn=conn)
+                print(f"🚨 [ESCALATION MATRIX] Triggered for {e['ticket_id']}")
+                conn.execute("UPDATE tickets SET ai_analysis = ai_analysis || ' [ESCALATION SENT]' WHERE ticket_id = %s", (e['ticket_id'],))
+            
+            # --- PREVENTIVE MAINTENANCE GENERATOR ---
+            if time.time() - last_pm_time > 7776000: 
+                try:
+                    task = random.choice([
+                        {"issue": "Routine Check: Inspect Building A HVAC Filters", "dept": "Air Conditioning & Ventilation Services", "bldg": "Building A", "loc": "Roof"},
+                        {"issue": "Routine Check: Test Fire Alarms & Extinguishers", "dept": "Security & Surveillance", "bldg": "Main Building", "loc": "All Floors"},
+                        {"issue": "Routine Check: Main Server UPS Battery Diagnostic", "dept": "IT & Network Services", "bldg": "Building C", "loc": "Server Room 1"}
+                    ])
+                    
+                    pm_ticket_id = 'PM-' + str(random.randint(1000, 9999))
+                    
+                    conn.execute('''INSERT INTO tickets 
+                        (ticket_id, user_name, role, department, building, location, issue, priority, ai_analysis) 
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''', 
+                        (pm_ticket_id, 'System AI', 'AI Engine', task['dept'], task['bldg'], task['loc'], task['issue'], 'Low', 'PREVENTIVE MAINTENANCE: Auto-generated scheduled task.'))
+                    
+                    tech = tool_get_available_technician(task['dept'], db_conn=conn)
+                    if tech['status'] == 'success':
+                        tool_assign_ticket(pm_ticket_id, tech['technician_name'], db_conn=conn)
+                        add_notification(tech['technician_name'], None, f"PREVENTIVE TASK: {pm_ticket_id} automatically assigned to your queue.", db_conn=conn)
+                    
+                    print(f"⚙️ [PREVENTIVE ENGINE] Auto-generated routine maintenance task: {pm_ticket_id}")
+                    last_pm_time = time.time() 
+                except Exception as e:
+                    print("PM Engine Error:", e)
+
+            # --- QA PENDING CHECK ---
+            qa_pending = conn.execute("""
+                SELECT ticket_id, user_name, assigned_technician FROM tickets 
+                WHERE status = 'Resolved' AND qa_sent = 0 
+                AND last_updated_at <= NOW() - INTERVAL '24 hours'
+            """).fetchall()
+            
+            for q in qa_pending:
+                ticket_id = q['ticket_id']
+                user = conn.execute("SELECT email FROM users WHERE name = %s", (q['user_name'],)).fetchone()
+                
+                if user and user['email']:
+                    subject = f"Did we fix it? QA Survey for {ticket_id}"
+                    base_url = os.getenv("FRONTEND_URL", "http://127.0.0.1:5005")
+                    link_yes = f"{base_url}/api/qa/{ticket_id}?answer=yes"
+                    link_no = f"{base_url}/api/qa/{ticket_id}?answer=no"
+                    
+                    body = f"Hi {q['user_name']},\n\nYour maintenance request {ticket_id} was marked as 'Resolved' by {q['assigned_technician']}.\n\nTo ensure quality, please let us know if the issue was completely fixed by clicking one of the links below:\n\nYES, IT IS FIXED: {link_yes}\n\nNO, STILL BROKEN: {link_no}\n\nThank you,\nInfraHub QA Bot"
+                    
+                    threading.Thread(target=send_async_email, args=(app, user['email'], subject, body)).start()
+                
+                conn.execute("UPDATE tickets SET qa_sent = 1 WHERE ticket_id = %s", (ticket_id,))
+            
+            # --- TECHNICIAN WORKLOAD BALANCER (TAMED) ---
+            techs = conn.execute("""
+                SELECT t.name, t.max_shift_hours, t.overtime_opt_in 
+                FROM technicians t
+                JOIN users u ON t.name = u.name
+                WHERE t.is_on_shift = 1 AND t.on_break = 0 AND u.role != 'Master Technician'
+            """).fetchall()
+            
+            for t in techs:
+                max_minutes = (t['max_shift_hours'] if t['max_shift_hours'] else 8) * 60
+                
+                minutes_worked_today = conn.execute('''
+                    SELECT SUM(time_taken_mins) as total_mins FROM tickets 
+                    WHERE assigned_technician = %s 
+                    AND status IN ('Resolved', 'Closed') 
+                    AND (last_updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::DATE = (NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::DATE
+                ''', (t['name'],)).fetchone()['total_mins'] or 0
+                
+                # Update minutes worked
+                conn.execute("UPDATE technicians SET current_active_hours = %s WHERE name = %s", (minutes_worked_today, t['name']))
+                
+                # Auto-Promote from Queued to Assigned if Active load drops below 2
+                active_count = conn.execute("SELECT COUNT(*) as c FROM tickets WHERE assigned_technician = %s AND status IN ('Assigned', 'In Progress')", (t['name'],)).fetchone()['c']
+                
+                if active_count < 2:
+                    queued_ticket = conn.execute("SELECT ticket_id FROM tickets WHERE assigned_technician = %s AND status = 'Queued' ORDER BY priority DESC, created_at ASC LIMIT 1", (t['name'],)).fetchone()
+                    if queued_ticket:
+                        conn.execute("UPDATE tickets SET status = 'Assigned' WHERE ticket_id = %s", (queued_ticket['ticket_id'],))
+                        add_notification(t['name'], None, f"QUEUE PROMOTION: Task {queued_ticket['ticket_id']} has been moved to your Active board.", db_conn=conn)
+                
+                # Fetch Unassigned only if they have capacity
+                if (minutes_worked_today < max_minutes or t['overtime_opt_in'] == 1) and active_count < 2:
+                    next_ticket = conn.execute('''
+                        SELECT ticket_id FROM tickets 
+                        WHERE assigned_technician = 'Unassigned' AND status = 'Pending' 
+                        ORDER BY priority DESC, created_at ASC LIMIT 1
+                    ''').fetchone()
+                    
+                    if next_ticket:
+                        tool_assign_ticket(next_ticket['ticket_id'], t['name'], db_conn=conn)
+
+            # --- ABSENTEE RE-ROUTING ---
+            absent_tasks = conn.execute('''
+                SELECT ticket_id, assigned_technician FROM tickets 
+                WHERE status IN ('Pending', 'Assigned', 'Queued') 
+                AND assigned_technician IN (SELECT name FROM technicians WHERE is_on_shift = 0)
+            ''').fetchall()
+            
+            for task in absent_tasks:
+                conn.execute("UPDATE tickets SET assigned_technician = 'Unassigned', status = 'Pending' WHERE ticket_id = %s", (task['ticket_id'],))
+
+        except Exception as e: 
+            print("Monitor Loop Error:", e)
+        finally:
+            if conn:
+                conn.close() 
+        
+        time.sleep(60)
 
 @app.route('/api/tickets/<ticket_id>', methods=['DELETE'])
 def delete_ticket(ticket_id):
@@ -813,6 +983,8 @@ def resolve_ticket(ticket_id):
     conn = get_db_connection()
     try:
         res_photo = request.json.get('resolution_photo', 'None')
+        
+        # 1. Resolve the current ticket
         conn.execute('''
             UPDATE tickets 
             SET status = 'Resolved', 
@@ -822,13 +994,23 @@ def resolve_ticket(ticket_id):
             WHERE ticket_id = %s
         ''', (res_photo, ticket_id))
 
-        # ---> FIXED SQL QUERY TO INCLUDE contact_number <---
-        ticket = conn.execute("SELECT user_name, contact_number, time_taken_mins FROM tickets WHERE ticket_id = %s", (ticket_id,)).fetchone()
+        ticket = conn.execute("SELECT user_name, contact_number, time_taken_mins, assigned_technician FROM tickets WHERE ticket_id = %s", (ticket_id,)).fetchone()
         
         if ticket:
             add_notification(ticket['user_name'], None, f"Your request {ticket_id} has been resolved! It took our team {ticket['time_taken_mins']} minutes to fix.", db_conn=conn)
-
-           
+            
+            # 2. AUTO-PROMOTE TRIGGER: Check the Queue
+            tech_name = ticket['assigned_technician']
+            queued_ticket = conn.execute("""
+                SELECT ticket_id FROM tickets 
+                WHERE assigned_technician = %s AND status = 'Queued' 
+                ORDER BY priority DESC, created_at ASC LIMIT 1
+            """, (tech_name,)).fetchone()
+            
+            if queued_ticket:
+                next_id = queued_ticket['ticket_id']
+                conn.execute("UPDATE tickets SET status = 'Assigned' WHERE ticket_id = %s", (next_id,))
+                add_notification(tech_name, None, f"QUEUE PROMOTION: Task {next_id} has been moved to your Active board.", db_conn=conn)
 
         return jsonify({"status": "success"}), 200
     except Exception as e: 
