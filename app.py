@@ -250,12 +250,13 @@ def add_notification(target_user, target_role, message, is_urgent=0, db_conn=Non
 def tool_get_available_technician(department, ticket_building=None, db_conn=None):
     conn = db_conn or get_db_connection()
     try:
-        query = '''
+       query = '''
             SELECT t.name, 
                    (t.current_building = %s) as is_close,
                    (SELECT COUNT(*) FROM tickets WHERE assigned_technician = t.name AND status IN ('Assigned', 'In Progress', 'Pending')) as total_tasks
             FROM technicians t
             WHERE (t.department = %s OR t.department LIKE %s OR t.department = 'All') AND t.is_on_shift = 1 AND t.on_break = 0
+            ORDER BY total_tasks ASC
         '''
         available_techs = conn.execute(query, (ticket_building, department, f'%{department}%')).fetchall()
         
@@ -268,18 +269,22 @@ def tool_get_available_technician(department, ticket_building=None, db_conn=None
 
 def tool_assign_ticket(ticket_id, technician_name, estimated_task_hours=2, db_conn=None):
     conn = db_conn or get_db_connection()
+    
     try:
         tech = conn.execute("SELECT current_active_hours, max_shift_hours FROM technicians WHERE name = %s", (technician_name,)).fetchone()
         
         max_hrs = tech['max_shift_hours'] if tech and tech['max_shift_hours'] else 8
-        current_hrs = tech['current_active_hours'] if tech and tech['current_active_hours'] else 0
+        max_mins = max_hrs * 60
         
-        if tech and (current_hrs + estimated_task_hours) <= max_hrs:
+        current_mins = tech['current_active_hours'] if tech and tech['current_active_hours'] else 0
+        estimated_mins = estimated_task_hours * 60
+        
+        if tech and (current_mins + estimated_mins) <= max_mins:
             conn.execute("UPDATE tickets SET assigned_technician = %s, status = 'Assigned' WHERE ticket_id = %s", (technician_name, ticket_id))
             notify_status_change(ticket_id, 'Assigned', db_conn=conn)
         else:
             conn.execute("UPDATE tickets SET assigned_technician = %s, status = 'Pending' WHERE ticket_id = %s", (technician_name, ticket_id))
-            
+
         return {"status": "success"}
     finally:
         if not db_conn and conn:
@@ -1244,10 +1249,10 @@ def monitoring_agent_loop():
                     ORDER BY created_at ASC
                 ''', (t['name'],)).fetchall()
                 
-                if len(active_tickets) > 1:
+               if len(active_tickets) > 1:
                     excess_count = len(active_tickets) - 1
                     for excess in active_tickets[1:]:
-                        conn.execute("UPDATE tickets SET status = 'Pending' WHERE ticket_id = %s", (excess['ticket_id'],))
+                        conn.execute("UPDATE tickets SET status = 'Pending', assigned_technician = 'Unassigned' WHERE ticket_id = %s", (excess['ticket_id'],))
                     active_tickets = active_tickets[:1]
                 
                 conn.execute("UPDATE technicians SET current_active_hours = %s WHERE name = %s", (minutes_worked_today, t['name']))
