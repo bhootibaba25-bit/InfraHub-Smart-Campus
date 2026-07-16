@@ -1232,42 +1232,42 @@ def monitoring_agent_loop():
                 conn.execute("UPDATE tickets SET qa_sent = 1 WHERE ticket_id = %s", (ticket_id,))
             
             # --- TECHNICIAN WORKLOAD BALANCER ---
-            techs = conn.execute("SELECT name, max_shift_hours, overtime_opt_in FROM technicians WHERE is_on_shift = 1 AND on_break = 0").fetchall()
-            for t in techs:
-                max_minutes = (t['max_shift_hours'] if t['max_shift_hours'] else 8) * 60
-                
-                minutes_worked_today = conn.execute('''
-                    SELECT SUM(time_taken_mins) as total_mins FROM tickets 
-                    WHERE assigned_technician = %s 
-                    AND status IN ('Resolved', 'Closed') 
-                    AND (last_updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::DATE = (NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::DATE
-                ''', (t['name'],)).fetchone()['total_mins'] or 0
-                
-                active_tickets = conn.execute('''
-                    SELECT ticket_id FROM tickets 
-                    WHERE assigned_technician = %s AND status IN ('Assigned', 'In Progress', 'Awaiting Parts') 
-                    ORDER BY created_at ASC
-                ''', (t['name'],)).fetchall()
-                
-               if len(active_tickets) > 1:
-                    excess_count = len(active_tickets) - 1
-                    for excess in active_tickets[1:]:
-                        conn.execute("UPDATE tickets SET status = 'Pending', assigned_technician = 'Unassigned' WHERE ticket_id = %s", (excess['ticket_id'],))
-                    active_tickets = active_tickets[:1]
-                
-                conn.execute("UPDATE technicians SET current_active_hours = %s WHERE name = %s", (minutes_worked_today, t['name']))
-                
-                if (minutes_worked_today < max_minutes or t['overtime_opt_in'] == 1) and len(active_tickets) == 0:
-                    next_ticket = conn.execute('''
-                        SELECT ticket_id FROM tickets 
-                        WHERE assigned_technician = %s AND status = 'Pending' 
-                        ORDER BY priority DESC, created_at ASC LIMIT 1
-                    ''', (t['name'],)).fetchone()
+                techs = conn.execute("SELECT name, max_shift_hours, overtime_opt_in FROM technicians WHERE is_on_shift = 1 AND on_break = 0").fetchall()
+                for t in techs:
+                    max_minutes = (t['max_shift_hours'] if t['max_shift_hours'] else 8) * 60
                     
-                    if next_ticket:
-                        conn.execute("UPDATE tickets SET status = 'Assigned' WHERE ticket_id = %s", (next_ticket['ticket_id'],))
-                        add_notification(t['name'], None, f"NEW ASSIGNMENT: Task {next_ticket['ticket_id']} assigned.", db_conn=conn)
-
+                    minutes_worked_today = conn.execute('''
+                        SELECT SUM(time_taken_mins) as total_mins FROM tickets 
+                        WHERE assigned_technician = %s 
+                        AND status IN ('Resolved', 'Closed') 
+                        AND (last_updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::DATE = (NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::DATE
+                    ''', (t['name'],)).fetchone()['total_mins'] or 0
+                    
+                    active_tickets = conn.execute('''
+                        SELECT ticket_id FROM tickets 
+                        WHERE assigned_technician = %s AND status IN ('Assigned', 'In Progress', 'Awaiting Parts') 
+                        ORDER BY created_at ASC
+                    ''', (t['name'],)).fetchall()
+                    
+                    if len(active_tickets) > 1:
+                        excess_count = len(active_tickets) - 1
+                        for excess in active_tickets[1:]:
+                            conn.execute("UPDATE tickets SET status = 'Pending', assigned_technician = 'Unassigned' WHERE ticket_id = %s", (excess['ticket_id'],))
+                        active_tickets = active_tickets[:1]
+                    
+                    conn.execute("UPDATE technicians SET current_active_hours = %s WHERE name = %s", (minutes_worked_today, t['name']))
+                    
+                    if (minutes_worked_today < max_minutes or t['overtime_opt_in'] == 1) and len(active_tickets) == 0:
+                        next_ticket = conn.execute('''
+                            SELECT ticket_id FROM tickets 
+                            WHERE assigned_technician = %s AND status = 'Pending' 
+                            ORDER BY priority DESC, created_at ASC LIMIT 1
+                        ''', (t['name'],)).fetchone()
+                        
+                        if next_ticket:
+                            conn.execute("UPDATE tickets SET status = 'Assigned' WHERE ticket_id = %s", (next_ticket['ticket_id'],))
+                            add_notification(t['name'], None, f"NEW ASSIGNMENT: Task {next_ticket['ticket_id']} assigned.", db_conn=conn)
+                            
             # --- ABSENTEE RE-ROUTING ---
             absent_tasks = conn.execute('''
                 SELECT ticket_id, assigned_technician FROM tickets 
